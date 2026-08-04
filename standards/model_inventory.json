@@ -53,9 +53,9 @@
       "owner": "unassigned",
       "purpose": "Sovereign/municipal debt sustainability analysis and revenue-bond debt-service coverage / additional bonds test.",
       "risk_tier": "Tier 1",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Additional Bonds Test was a static current-period covenant check, not a forward-looking pro-forma test of a proposed new issuance", "No independent-oracle reference check registered", "No scenario/sensitivity analysis"]
+      "maturity": "M3",
+      "reference_checks": ["check_public_finance_additional_bonds_test"],
+      "known_limitations": ["Single instrument only -- does not model a full debt portfolio with staggered maturities", "Level debt service (PMT) only -- no capital-appreciation or non-level new-issuance structures", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "asset-management",

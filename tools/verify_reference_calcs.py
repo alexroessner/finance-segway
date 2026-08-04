@@ -679,6 +679,80 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Public Finance: forward-looking Additional Bonds Test (proposed new
+# issuance's level debt service via PMT, pro-forma historical test, and a
+# 5-year projected test under Base/Stress revenue growth scenarios).
+# ---------------------------------------------------------------------
+def check_public_finance_additional_bonds_test():
+    path = os.path.join(REPO_ROOT, "07_Public_Finance", "_template_PUBLIC_FINANCE.xlsx")
+
+    gross_rev, om_exp, senior_ds, sub_ds, covenant = 10_000_000, 3_000_000, 3_500_000, 500_000, 1.25
+    new_par, coupon, term = 20_000_000, 0.045, 20
+    rev_growth_base, rev_growth_stress = 0.03, -0.02
+    om_growth_base, om_growth_stress = 0.025, 0.05
+
+    def populate(wb, scenario):
+        rbc = wb["Revenue Bond Coverage"]
+        rbc["C5"], rbc["C6"], rbc["C7"], rbc["C8"], rbc["C16"] = gross_rev, om_exp, senior_ds, sub_ds, covenant
+        abt = wb["Additional Bonds Test"]
+        abt["C6"], abt["C7"], abt["C8"] = new_par, coupon, term
+        abt["C24"], abt["C25"], abt["C26"], abt["C27"] = (
+            rev_growth_base, rev_growth_stress, om_growth_base, om_growth_stress,
+        )
+        wb["Cover"]["C9"] = scenario
+
+    # independent re-implementation: closed-form level-annuity payment,
+    # not a copy of the sheet's own PMT() call
+    new_bond_ds = new_par * coupon / (1 - (1 + coupon) ** -term)
+    net_revenue = gross_rev - om_exp
+    proforma_ds = senior_ds + new_bond_ds
+    proforma_dscr = net_revenue / proforma_ds
+    historical_pass = proforma_dscr >= covenant
+
+    ok = True
+    details = []
+
+    wb = with_recalc(path, lambda w: populate(w, "Base"))
+    abt = wb["Additional Bonds Test"]
+    ok = ok and close(abt["C9"].value, new_bond_ds)
+    ok = ok and close(abt["C18"].value, proforma_dscr)
+    ok = ok and (abt["C20"].value == "PASS") == historical_pass
+    details.append(f"new-bond DS: sheet={abt['C9'].value:.2f} closed-form={new_bond_ds:.2f} | "
+                    f"pro-forma DSCR: sheet={abt['C18'].value:.4f} ref={proforma_dscr:.4f}")
+
+    scenario_pass = {}
+    for scenario, rev_g, om_g in (("Base", rev_growth_base, om_growth_base),
+                                   ("Stress", rev_growth_stress, om_growth_stress)):
+        wb = with_recalc(path, lambda w, s=scenario: populate(w, s))
+        abt = wb["Additional Bonds Test"]
+        rev, om = gross_rev, om_exp
+        dscrs = []
+        for _ in range(5):
+            rev *= (1 + rev_g)
+            om *= (1 + om_g)
+            dscrs.append((rev - om) / proforma_ds)
+        for i, ref_dscr in enumerate(dscrs):
+            sheet_dscr = abt.cell(row=32 + i, column=7).value
+            if not close(sheet_dscr, ref_dscr):
+                ok = False
+                details.append(f"{scenario} Yr{i+1} DSCR mismatch: sheet={sheet_dscr} ref={ref_dscr:.4f}")
+        ref_min_dscr = min(dscrs)
+        ok = ok and close(abt["C38"].value, ref_min_dscr)
+        ref_overall_pass = ref_min_dscr >= covenant
+        sheet_pass = abt["C40"].value.startswith("PASS")
+        ok = ok and sheet_pass == ref_overall_pass
+        scenario_pass[scenario] = sheet_pass
+        details.append(f"{scenario}: min 5-yr DSCR sheet={abt['C38'].value:.4f} ref={ref_min_dscr:.4f}, "
+                        f"projected test {'PASS' if sheet_pass else 'FAIL'} (expect {'PASS' if ref_overall_pass else 'FAIL'})")
+
+    # Base must pass, Stress must fail by construction of these test inputs —
+    # this is the "meaningful downside behavior" the governance standard requires.
+    ok = ok and scenario_pass.get("Base") is True and scenario_pass.get("Stress") is False
+
+    return "Public Finance: forward-looking Additional Bonds Test (PMT + historical + projected)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # VC Exit Waterfall: conservation (this is the exact bug class caught and
 # fixed mid-session — pinned here as a permanent regression test).
 # ---------------------------------------------------------------------
@@ -775,6 +849,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_public_finance_additional_bonds_test,
     check_cover_tab_field_alignment,
     check_vc_waterfall_conservation,
     check_base_archetype_integration,
