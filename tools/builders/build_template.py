@@ -6,6 +6,7 @@ Convention: blue=hardcode input, black=formula, green=cross-sheet link, yellow f
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from template_helpers import add_sources_checks
 
 BLUE = Font(name="Arial", size=10, color="0000FF")
 BLACK = Font(name="Arial", size=10, color="000000")
@@ -327,6 +328,55 @@ for c in range(3, 9):
     ws.cell(row=13, column=c).number_format = MULT if c >= 6 else CUR
 ws.sheet_view.showGridLines = False
 
+# ---------------- VALUATION CROSS-CHECK ----------------
+ws = wb.create_sheet("Valuation Cross-Check")
+set_col_widths(ws, [4, 40, 16, 46])
+ws["B2"] = "DCF vs. Comps: Valuation Triangulation"; ws["B2"].font = TITLE
+ws["B3"] = ("No banker trusts a DCF in isolation -- the terminal value assumption alone can swing it wildly. "
+            "This applies the Comps tab's own median multiples to the company's own financials to get a SECOND, "
+            "independent valuation estimate, then compares it to the DCF. A large gap isn't necessarily wrong, "
+            "but it means the DCF's growth/WACC/terminal-growth assumptions are pricing in something the "
+            "market's current multiples for comparable companies are not -- and that's worth a second look, not "
+            "an automatic override of either number.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "From the DCF"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+ws["B6"] = "DCF-implied value/share"
+ws["C6"] = "=DCF!I14"; ws["C6"].font = GREEN; ws["C6"].number_format = CUR; ws["C6"].border = BORDER
+ws["B7"] = "Net debt (same figure as the DCF)"
+ws["C7"] = "=DCF!I11"; ws["C7"].font = GREEN; ws["C7"].number_format = CUR; ws["C7"].border = BORDER
+ws["B8"] = "Diluted shares (mm)"
+ws["C8"] = "=DCF!I13"; ws["C8"].font = GREEN; ws["C8"].number_format = CUR; ws["C8"].border = BORDER
+
+ws["B10"] = "From Comps (median multiples x this company's own financials)"
+ws["B10"].font = BOLD; ws["B10"].fill = GRAY_FILL
+ws["B11"] = "Company FY1E revenue"
+ws["C11"] = "=IS!F5"; ws["C11"].font = GREEN; ws["C11"].number_format = CUR; ws["C11"].border = BORDER
+ws["B12"] = "Company FY1E EBITDA"
+ws["C12"] = "=IS!F11"; ws["C12"].font = GREEN; ws["C12"].number_format = CUR; ws["C12"].border = BORDER
+ws["B13"] = "Comps median EV/Revenue"
+ws["C13"] = "=Comps!F13"; ws["C13"].font = GREEN; ws["C13"].number_format = MULT; ws["C13"].border = BORDER
+ws["B14"] = "Comps median EV/EBITDA"
+ws["C14"] = "=Comps!G13"; ws["C14"].font = GREEN; ws["C14"].number_format = MULT; ws["C14"].border = BORDER
+ws["B15"] = "Comps-implied EV (EV/Revenue method)"
+ws["C15"] = "=C11*C13"; ws["C15"].number_format = CUR; ws["C15"].border = BORDER
+ws["B16"] = "Comps-implied EV (EV/EBITDA method)"
+ws["C16"] = "=C12*C14"; ws["C16"].number_format = CUR; ws["C16"].border = BORDER
+ws["B17"] = "Comps-implied EV (average of both methods)"
+ws["C17"] = "=AVERAGE(C15,C16)"; ws["C17"].font = BOLD; ws["C17"].number_format = CUR; ws["C17"].border = BORDER
+ws["B18"] = "Comps-implied equity value"
+ws["C18"] = "=C17-C7"; ws["C18"].number_format = CUR; ws["C18"].border = BORDER
+ws["B19"] = "Comps-implied value/share"
+ws["C19"] = "=IFERROR(C18/C8,\"-\")"; ws["C19"].font = BOLD; ws["C19"].number_format = CUR; ws["C19"].border = BORDER
+
+ws["B21"] = "Triangulation"; ws["B21"].font = BOLD; ws["B21"].fill = GRAY_FILL
+ws["B22"] = "DCF vs. Comps: premium/(discount)"
+ws["C22"] = "=IFERROR(C6/C19-1,\"-\")"; ws["C22"].font = BOLD; ws["C22"].number_format = PCT
+ws["C22"].fill = YELLOW_FILL; ws["C22"].border = BORDER
+ws["D22"] = "Large positive = DCF is pricing in more than the market currently pays for comparable companies; large negative = the opposite. Investigate the gap, don't just average it away."
+ws["D22"].font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- SENSITIVITY ----------------
 ws = wb.create_sheet("Sensitivity")
 set_col_widths(ws, [4, 20] + [12]*6)
@@ -356,6 +406,22 @@ for r in range(5, 15):
     for c in range(2, 7):
         ws.cell(row=r, column=c).border = BORDER
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("DCF vs. Comps valuation triangulation", "Standard sell-side/buy-side practice: no single valuation method is trusted in isolation", "Standard practice", "A gap between methods is a prompt to investigate, not a signal either number is wrong -- comps and DCF answer related but distinct questions"),
+        ("Unlevered FCF = EBIT x (1-tax) + D&A - Capex", "Standard DCF unlevered free cash flow build", "Standard practice", "Uses the IS's EBIT/D&A rather than CF's levered FCF, which nets out interest -- a DCF wants the unlevered figure"),
+        ("Comps-implied EV blended as a simple average of the EV/Revenue and EV/EBITDA methods", "Modeling choice for this template", "Modeling choice, not a universal convention", "A weighted blend (e.g. favoring EV/EBITDA for a mature business) may be more appropriate depending on the company -- simple average is the template default"),
+        ("Interest expense held flat at the last actual (no debt schedule)", "Simplification documented directly on the IS tab", "Modeling choice, stated on the sheet", "Avoids a circular reference to a Balance Sheet debt schedule this simplified template doesn't build -- a real deal model needs an actual debt schedule"),
+    ],
+    checks=[
+        ("Balance sheet balances (Assets = Liabilities + Equity) across every projected year", "=SUMPRODUCT(ABS(BS!C19:G19))", "0 (exact) once the Balance Sheet is populated -- BS!row19 is this template's own balance-check row"),
+        ("Comps-implied value/share is positive whenever both multiples and financials are populated", "=IF(AND(ISNUMBER('Valuation Cross-Check'!C19),'Valuation Cross-Check'!C11>0,'Valuation Cross-Check'!C13>0),'Valuation Cross-Check'!C19>0,TRUE)", "TRUE"),
+        ("DCF terminal value uses the SAME terminal growth rate as its own discount-rate spread (WACC > terminal growth, not a divide-by-negative)", "=IF(DCF!I5>DCF!I6,TRUE,FALSE)", "TRUE -- the Gordon Growth terminal-value formula is undefined/nonsensical when WACC <= terminal growth"),
+        ("CF's Net income and D&A tie exactly to the IS (cross-sheet link, not a re-entered duplicate)", "=SUMPRODUCT(ABS(CF!E5:G5-IS!F18:H18))+SUMPRODUCT(ABS(CF!E6:G6-IS!F13:H13))", "0 (exact) -- confirms the green cross-sheet links actually pull the IS figures, not stale hardcodes"),
+    ],
+)
 
 wb.move_sheet("Cover", offset=-len(wb.sheetnames))
 out_path = "_template_BASE.xlsx"

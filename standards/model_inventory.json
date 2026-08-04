@@ -9,11 +9,11 @@
       "workbook_template": "_template_BASE.xlsx",
       "instances": ["01_Investment_Banking/companies/ACME.xlsx"],
       "owner": "unassigned",
-      "purpose": "Integrated income statement / balance sheet / cash flow with a DCF valuation.",
+      "purpose": "Integrated income statement / balance sheet / cash flow with a DCF valuation, cross-checked against trading comps.",
       "risk_tier": "Tier 2",
-      "maturity": "M2",
-      "reference_checks": ["check_base_archetype_integration"],
-      "known_limitations": ["Single populated instance, not two (M4 gate)", "No Sources/Checks sheet or model card/validation record yet (M3 gate)", "No trading comps or precedent-transaction cross-check on the DCF output"]
+      "maturity": "M3",
+      "reference_checks": ["check_base_archetype_integration", "check_base_dcf_comps_triangulation"],
+      "known_limitations": ["Single populated instance, not two (M4 gate)", "No debt schedule -- interest held flat at the last actual (documented on the IS tab)", "Comps-implied EV is a simple average of the EV/Revenue and EV/EBITDA methods, not a weighted blend"]
     },
     {
       "id": "lbo-pe-mb",

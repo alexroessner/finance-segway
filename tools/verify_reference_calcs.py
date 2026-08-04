@@ -26,6 +26,7 @@ Exit code is 0 iff every check passes.
 import math
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -1438,6 +1439,77 @@ def check_public_finance_additional_bonds_test():
 
 
 # ---------------------------------------------------------------------
+# BASE archetype: DCF vs. Comps valuation triangulation -- a second,
+# independent valuation estimate built from the Comps tab's own median
+# multiples applied to the company's own financials, cross-checked
+# against the DCF.
+# ---------------------------------------------------------------------
+def check_base_dcf_comps_triangulation():
+    path = os.path.join(REPO_ROOT, "01_Investment_Banking", "_template_BASE.xlsx")
+    growth = [0.10, 0.09, 0.08, 0.07, 0.06]
+    gm, opex_pct, tax_rate, da_pct, capex_pct, shares = 0.60, 0.25, 0.25, 0.80, 0.05, 100
+    rev0, interest0 = 1000.0, 20.0
+    net_debt, wacc, term_g = 300, 0.10, 0.025
+    ev_rev = [2.5, 3.0, 2.8, 2.6, 2.9, 3.1, 2.7, 2.4]
+    ev_ebitda = [12.0, 13.0, 14.0, 11.5, 12.5, 13.5, 12.8, 11.9]
+
+    def populate(wb):
+        a = wb["Assumptions"]
+        for i, g in enumerate(growth):
+            a.cell(row=5, column=3 + i, value=g)
+        for col in range(3, 8):
+            a.cell(row=6, column=col, value=gm)
+            a.cell(row=7, column=col, value=opex_pct)
+            a.cell(row=8, column=col, value=tax_rate)
+            a.cell(row=9, column=col, value=da_pct)
+            a.cell(row=10, column=col, value=capex_pct)
+            a.cell(row=12, column=col, value=shares)
+        isheet = wb["IS"]
+        isheet["E5"], isheet["E7"], isheet["E15"] = rev0, rev0 * (1 - gm), interest0
+        dcf = wb["DCF"]
+        dcf["I5"], dcf["I6"], dcf["I11"], dcf["I13"] = wacc, term_g, net_debt, shares
+        comps = wb["Comps"]
+        for i in range(8):
+            row = 5 + i
+            comps.cell(row=row, column=6, value=ev_rev[i])
+            comps.cell(row=row, column=7, value=ev_ebitda[i])
+
+    wb = with_recalc(path, populate)
+    vc = wb["Valuation Cross-Check"]
+
+    rev1 = rev0 * (1 + growth[0])
+    ebitda1 = rev1 * gm - rev1 * opex_pct
+    median_ev_rev = statistics.median(ev_rev)
+    median_ev_ebitda = statistics.median(ev_ebitda)
+    implied_ev_rev = rev1 * median_ev_rev
+    implied_ev_ebitda = ebitda1 * median_ev_ebitda
+    avg_implied_ev = (implied_ev_rev + implied_ev_ebitda) / 2
+    implied_equity = avg_implied_ev - net_debt
+    comps_value_per_share = implied_equity / shares
+
+    ok = True
+    details = []
+    for label, sheet_val, ref_val in [
+        ("FY1E EBITDA", vc["C12"].value, ebitda1),
+        ("median EV/Rev", vc["C13"].value, median_ev_rev),
+        ("median EV/EBITDA", vc["C14"].value, median_ev_ebitda),
+        ("avg implied EV", vc["C17"].value, avg_implied_ev),
+        ("Comps value/share", vc["C19"].value, comps_value_per_share),
+    ]:
+        this_ok = close(sheet_val, ref_val)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val} ref={ref_val:.4f} {'OK' if this_ok else 'MISMATCH'}")
+
+    dcf_value = wb["DCF"]["I14"].value
+    ref_premium = dcf_value / comps_value_per_share - 1
+    premium_ok = close(vc["C22"].value, ref_premium)
+    ok = ok and premium_ok
+    details.append(f"DCF-vs-Comps premium: sheet={vc['C22'].value:.4f} ref={ref_premium:.4f} {'OK' if premium_ok else 'MISMATCH'}")
+
+    return "BASE: DCF vs. Comps valuation triangulation", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # VC Exit Waterfall: conservation (this is the exact bug class caught and
 # fixed mid-session — pinned here as a permanent regression test).
 # ---------------------------------------------------------------------
@@ -1534,6 +1606,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_base_dcf_comps_triangulation,
     check_vc_participating_preferred_cap,
     check_trade_finance_dynamic_discounting,
     check_restructuring_ev_sensitivity,
