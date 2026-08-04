@@ -107,11 +107,11 @@
       "workbook_template": "_template_MICROFINANCE.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Loan-loss provisioning, portfolio growth, loan-officer productivity.",
+      "purpose": "Loan-loss provisioning (PAR aging buckets), portfolio growth, loan-officer productivity, OSS/FSS sustainability, and flat-rate vs. declining-balance true cost of credit.",
       "risk_tier": "Tier 2",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Loan-loss provisioning added but never independently verified", "No portfolio-at-risk aging-bucket mechanic"]
+      "maturity": "M3",
+      "reference_checks": ["check_microfinance_flat_vs_declining"],
+      "known_limitations": ["No group-lending/joint-liability mechanics (a core classic-microfinance risk-sharing structure)", "Bisection solve assumes a monthly-equivalent compounding period for the annualized-rate conversion", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "venture-capital",

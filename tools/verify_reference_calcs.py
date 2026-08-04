@@ -679,6 +679,54 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Microfinance: flat-rate vs. declining-balance effective interest rate --
+# the true-cost-of-credit gap that pricing-transparency regulation exists
+# to surface. Independent check uses a DIFFERENT root-finding approach
+# (fixed-point iteration, not the sheet's bisection) as a genuinely
+# separate verification path.
+# ---------------------------------------------------------------------
+def check_microfinance_flat_vs_declining():
+    path = os.path.join(REPO_ROOT, "11_Microfinance", "_template_MICROFINANCE.xlsx")
+    principal, flat_rate, n = 1000.0, 0.02, 12
+
+    def populate(wb):
+        fd = wb["Flat vs Declining Rate"]
+        fd["C6"], fd["C7"], fd["C8"] = principal, flat_rate, n
+
+    wb = with_recalc(path, populate)
+    fd = wb["Flat vs Declining Rate"]
+
+    total_interest = principal * flat_rate * n
+    installment = (principal + total_interest) / n
+    approx_rate = 2 * n * flat_rate / (n + 1)
+
+    # independent solve via fixed-point iteration on r = installment*(1-(1+r)^-n)/P,
+    # a different numerical method than the sheet's bisection
+    r = flat_rate
+    for _ in range(200):
+        r = installment * (1 - (1 + r) ** -n) / principal
+    exact_rate = r
+
+    ok = True
+    details = []
+    checks_ = [
+        ("installment", fd["C13"].value, installment),
+        ("approx rate", fd["C16"].value, approx_rate),
+        ("exact rate", fd["C28"].value, exact_rate),
+    ]
+    for label, sheet_val, ref_val in checks_:
+        this_ok = close(sheet_val, ref_val, tol=1e-3)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val} ref={ref_val:.6f} {'OK' if this_ok else 'MISMATCH'}")
+
+    exceeds_flat = exact_rate > flat_rate
+    ok = ok and exceeds_flat
+    details.append(f"exact declining rate ({exact_rate:.4f}) > flat rate ({flat_rate}): {'OK' if exceeds_flat else 'FAIL'}")
+
+    return "Microfinance: flat-rate vs. declining-balance effective rate (independent fixed-point solve)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Fintech: Durbin-regulated vs. exempt debit interchange economics --
 # the structural reason many neobanks partner with a sub-$10B "sponsor
 # bank" rather than becoming a bank themselves.
@@ -1128,6 +1176,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_microfinance_flat_vs_declining,
     check_fintech_interchange_durbin,
     check_crypto_perp_funding_basis,
     check_commodities_convenience_yield,
