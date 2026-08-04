@@ -679,6 +679,64 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Restructuring: EV sensitivity showing WHERE the fulcrum security moves
+# across a range of enterprise values -- not just what it is at one point
+# estimate.
+# ---------------------------------------------------------------------
+def check_restructuring_ev_sensitivity():
+    path = os.path.join(REPO_ROOT, "24_Distressed_Restructuring", "_template_RESTRUCTURING.xlsx")
+    tranche_names = ["DIP / super-priority", "First lien secured", "Second lien secured",
+                      "Senior unsecured notes", "Subordinated debt", "Equity"]
+    faces = [50_000_000, 200_000_000, 100_000_000, 150_000_000, 75_000_000, 1]
+    base_ev = 400_000_000
+    ev_scenarios = [-0.40, -0.20, -0.10, 0.0, 0.10, 0.20, 0.40]
+
+    def populate(wb):
+        rw = wb["Recovery Waterfall"]
+        for i, f in enumerate(faces):
+            rw.cell(row=5 + i, column=3, value=f)
+        rw["C12"] = base_ev
+
+    wb = with_recalc(path, populate)
+    ev_sheet = wb["EV Sensitivity"]
+
+    def waterfall_recovery_pct(ev):
+        remaining = ev
+        pcts = []
+        for face in faces:
+            recovered = min(remaining, face)
+            pcts.append(recovered / face if face else 0)
+            remaining = max(remaining - recovered, 0)
+        return pcts
+
+    def fulcrum(pcts):
+        for i, p in enumerate(pcts):
+            if p < 1 - 1e-9 and (i == 0 or pcts[i - 1] >= 1 - 1e-9):
+                return tranche_names[i]
+        return "none -- equity in the money"
+
+    ok = True
+    details = []
+    for col_idx, scenario in enumerate(ev_scenarios):
+        col = 3 + col_idx
+        ev = base_ev * (1 + scenario)
+        ref_pcts = waterfall_recovery_pct(ev)
+        ref_fulcrum = fulcrum(ref_pcts)
+        for t in range(6):
+            sheet_pct = ev_sheet.cell(row=9 + t, column=col).value
+            this_ok = close(sheet_pct, ref_pcts[t], tol=1e-4)
+            ok = ok and this_ok
+            if not this_ok:
+                details.append(f"scenario {scenario:+.0%} tranche {tranche_names[t]}: sheet={sheet_pct} ref={ref_pcts[t]:.4f} MISMATCH")
+        sheet_fulcrum = ev_sheet.cell(row=16, column=col).value
+        fulcrum_ok = sheet_fulcrum == ref_fulcrum
+        ok = ok and fulcrum_ok
+        details.append(f"EV {scenario:+.0%} (${ev/1e6:.0f}mm): fulcrum sheet='{sheet_fulcrum}' ref='{ref_fulcrum}' {'OK' if fulcrum_ok else 'MISMATCH'}")
+
+    return "Restructuring: EV sensitivity + fulcrum-shift identification across 7 scenarios", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Real Estate: LP/GP promote waterfall (compounded pref, no catch-up,
 # straight promote split) -- conservation and GP-outperformance checks.
 # ---------------------------------------------------------------------
@@ -1385,6 +1443,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_restructuring_ev_sensitivity,
     check_real_estate_lp_gp_promote,
     check_quant_psr_mintrl,
     check_project_finance_dsra,

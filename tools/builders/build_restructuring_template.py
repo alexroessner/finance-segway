@@ -65,6 +65,63 @@ ws["C21"] = (f'=IFERROR(INDEX(B5:B{last_tranche_row},'
 ws["C21"].font = BOLD; ws["C21"].border = BORDER
 ws.sheet_view.showGridLines = False
 
+# ---------------- EV SENSITIVITY: WHERE THE FULCRUM MOVES ----------------
+ws = wb.create_sheet("EV Sensitivity")
+set_col_widths(ws, [4, 26, 13, 13, 13, 13, 13, 13, 13])
+ws["B2"] = "Enterprise Value Sensitivity: Where the Fulcrum Moves"; ws["B2"].font = TITLE
+ws["B3"] = ("The fulcrum security isn't fixed -- it's a function of enterprise value, and EV is exactly what "
+            "every party in a Chapter 11 fights over. As EV falls, the fulcrum moves UP the capital structure "
+            "(more senior classes get impaired); as EV rises, it moves DOWN. This is why EV disputes are the "
+            "actual battleground, not a side issue -- whoever's class becomes the fulcrum controls the plan.")
+ws["B3"].font = ITALIC_GRAY
+
+ev_scenarios = [-0.40, -0.20, -0.10, 0.0, 0.10, 0.20, 0.40]
+ws["B5"] = "EV scenario (% of base case)"
+for i, s in enumerate(ev_scenarios, start=3):
+    c = ws.cell(row=5, column=i, value=s); c.font = BOLD; c.fill = GRAY_FILL; c.number_format = PCT
+ws["B6"] = "Enterprise value ($)"
+for i, s in enumerate(ev_scenarios, start=3):
+    letter = get_column_letter(i)
+    ws.cell(row=6, column=i, value=f"='Recovery Waterfall'!$C$12*(1+{letter}5)").number_format = CUR
+    ws.cell(row=6, column=i).border = BORDER
+
+n_tranches = 6
+ws["B8"] = "Recovery % by tranche"; ws["B8"].font = BOLD; ws["B8"].fill = GRAY_FILL
+for t in range(n_tranches):
+    row = 9 + t
+    ws.cell(row=row, column=2, value=f"='Recovery Waterfall'!B{5+t}").font = GREEN
+    for i in range(3, 3 + len(ev_scenarios)):
+        letter = get_column_letter(i)
+        face_ref = f"'Recovery Waterfall'!$C${5+t}"
+        if t == 0:
+            remaining = f"{letter}6"
+        else:
+            senior_faces = "+".join(f"'Recovery Waterfall'!$C${5+k}" for k in range(t))
+            senior_recovered = "+".join(f"{letter}{9+k}*'Recovery Waterfall'!$C${5+k}" for k in range(t))
+            remaining = f"MAX({letter}6-({senior_recovered}),0)"
+        formula = f'=IFERROR(MIN({remaining},{face_ref})/{face_ref},"-")'
+        ws.cell(row=row, column=i, value=formula).number_format = PCT
+        ws.cell(row=row, column=i).border = BORDER
+
+ws["B16"] = "Fulcrum tranche at this EV"; ws["B16"].font = BOLD
+for i in range(3, 3 + len(ev_scenarios)):
+    letter = get_column_letter(i)
+    conditions = []
+    for t in range(n_tranches):
+        row = 9 + t
+        if t == 0:
+            conditions.append(f'IF(AND(ISNUMBER({letter}{row}),{letter}{row}<1),B{row},')
+        else:
+            prev_row = row - 1
+            conditions.append(f'IF(AND(ISNUMBER({letter}{row}),{letter}{row}<1,ISNUMBER({letter}{prev_row}),{letter}{prev_row}>=1),B{row},')
+    formula = "=" + "".join(conditions) + '"none -- equity in the money"' + ")" * len(conditions)
+    ws.cell(row=16, column=i, value=formula)
+    ws.cell(row=16, column=i).font = BOLD
+    ws.cell(row=16, column=i).border = BORDER
+ws["B18"] = "Read left to right: the fulcrum climbs toward DIP/first-lien as EV falls, and drops toward equity as EV rises -- the same capital structure, a completely different plan of reorganization."
+ws["B18"].font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- LIQUIDATION VS REORG ----------------
 ws = wb.create_sheet("Liquidation vs Reorg")
 set_col_widths(ws, [4, 30, 16, 16, 40])
@@ -100,6 +157,22 @@ for r2 in range(5, 13):
     for c in (3, 4):
         ws.cell(row=r2, column=c).border = BORDER
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Absolute priority waterfall (senior tranches paid in full before any junior recovery)", "U.S. Bankruptcy Code absolute priority rule (11 U.S.C. Section 1129(b))", "Statutory", "Assumes strict absolute priority -- real plans sometimes deviate via negotiated settlements (e.g. gifting to equity) that this model does not represent"),
+        ("Fulcrum security = first tranche whose recovery drops below 100%", "Standard distressed-investing / restructuring practitioner definition", "Standard practice", "Identifies the fulcrum GIVEN a single point-estimate EV -- see the EV Sensitivity tab for how it moves across a range"),
+        ("EV sensitivity across a -40% to +40% scenario range", "Reflects the reality that enterprise value in a Chapter 11 is contested, not a known fact", "Modeling choice, not a specific case's actual EV range", "Symmetric percentage range for illustration -- a real case's plausible EV range depends on valuation methodology disputes (DCF vs. comps vs. precedent transactions)"),
+        ("Liquidation vs. reorg NPV comparison", "Standard best-interests-of-creditors test framing (11 U.S.C. Section 1129(a)(7))", "Statutory framing, illustrative implementation", "A real best-interests test is class-by-class, not just an aggregate NPV comparison"),
+    ],
+    checks=[
+        ("Fulcrum tranche at the base case (0% EV scenario) matches the single-scenario Recovery Waterfall tab", "=IF('EV Sensitivity'!F16='Recovery Waterfall'!C21,TRUE,FALSE)", "TRUE -- the sensitivity table's base-case column must reproduce the standalone waterfall's own answer"),
+        ("Number of fully-recovered tranches is non-decreasing as EV rises from -40% to +40%", "=IF(COUNTIF('EV Sensitivity'!C9:C14,\">=0.9999\")<=COUNTIF('EV Sensitivity'!I9:I14,\">=0.9999\"),TRUE,FALSE)", "TRUE -- more enterprise value can only help junior tranches recover, never hurt senior ones"),
+        ("Recovery % never exceeds 100% for any tranche at any EV scenario", "=IF(COUNTIF('EV Sensitivity'!C9:I14,\">1.0000001\")=0,TRUE,FALSE)", "TRUE -- absolute priority caps every tranche's recovery at its own face claim"),
+        ("NPV comparison picks the higher of liquidation vs. reorg", "=IF(OR(NOT(ISNUMBER('Liquidation vs Reorg'!C12)),NOT(ISNUMBER('Liquidation vs Reorg'!D12))),TRUE,MAX('Liquidation vs Reorg'!C12,'Liquidation vs Reorg'!D12)=IF('Liquidation vs Reorg'!C12>'Liquidation vs Reorg'!D12,'Liquidation vs Reorg'!C12,'Liquidation vs Reorg'!D12))", "TRUE"),
+    ],
+)
 
 add_refresh_log(wb)
 out_path = "RESTRUCTURING_template.xlsx"

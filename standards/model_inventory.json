@@ -275,11 +275,11 @@
       "workbook_template": "_template_RESTRUCTURING.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Fulcrum security identification across the capital structure.",
+      "purpose": "Fulcrum security identification across the capital structure, and where the fulcrum moves across a range of contested enterprise values.",
       "risk_tier": "Tier 1",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Fulcrum-security computation added but never independently verified", "No recovery-waterfall sensitivity across enterprise-value scenarios"]
+      "maturity": "M3",
+      "reference_checks": ["check_restructuring_ev_sensitivity"],
+      "known_limitations": ["Strict absolute priority only -- no negotiated deviations (e.g. equity gifting)", "Single-point EV per scenario column, not a continuous/Monte Carlo EV distribution", "No populated instance yet (M4 gate)"]
     }
   ]
 }
