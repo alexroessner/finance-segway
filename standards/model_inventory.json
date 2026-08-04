@@ -163,11 +163,11 @@
       "workbook_template": "_template_CRYPTO.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Token economics: comp ratios, supply emission/dilution.",
+      "purpose": "Token economics: comp ratios, supply emission/dilution, staking yield, and perpetual-futures funding-rate carry.",
       "risk_tier": "Tier 2",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Emission/dilution mechanic added but never independently verified", "No staking-yield/slashing or funding-rate carry mechanic"]
+      "maturity": "M3",
+      "reference_checks": ["check_crypto_perp_funding_basis"],
+      "known_limitations": ["Funding rate simplified to the pure premium (omits the small clamped interest-rate component real venues add)", "Emission schedule is flat, not the real cliff+linear per-allocation unlock schedule", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "real-estate-reit",

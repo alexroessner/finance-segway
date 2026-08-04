@@ -119,6 +119,67 @@ for r2 in range(11, 15):
     ws.cell(row=r2, column=3).border = BORDER
 ws.sheet_view.showGridLines = False
 
+# ---------------- PERPETUAL FUNDING & BASIS TRADE ----------------
+ws = wb.create_sheet("Perp Funding & Basis")
+set_col_widths(ws, [4, 34, 14, 14, 14, 14, 14, 40])
+ws["B2"] = "Perpetual Funding Rate & Cash-and-Carry Basis Trade"; ws["B2"].font = TITLE
+ws["B3"] = ("A perp has no expiry, so it stays anchored to spot via a periodic funding payment instead: when the "
+            "perp trades above spot (positive premium), longs pay shorts. A cash-and-carry basis trade -- long "
+            "spot, short an equal notional of perp -- is delta-neutral to the underlying's price and collects "
+            "that funding as its return, with basis-widening (not price) as the real risk.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Inputs"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+perp_inputs = [
+    ("Perpetual futures price", 0, CUR2),
+    ("Spot / index price", 0, CUR2),
+    ("Funding interval (hours)", 8, NUM),
+    ("Basis trade notional ($, long spot / short perp)", 0, CUR),
+]
+r = 6
+for label, default, fmt in perp_inputs:
+    ws.cell(row=r, column=2, value=label).font = BLACK
+    c = ws.cell(row=r, column=3, value=default); c.font = BLUE; c.fill = YELLOW_FILL
+    c.number_format = fmt; c.border = BORDER
+    r += 1
+
+ws["B11"] = "Funding Rate"; ws["B11"].font = BOLD; ws["B11"].fill = GRAY_FILL
+ws["B12"] = "Premium (Perp - Spot) / Spot"
+ws["C12"] = "=IFERROR((C6-C7)/C7,\"-\")"; ws["C12"].number_format = PCT2; ws["C12"].border = BORDER
+ws["B13"] = "Funding rate this interval (simplified: = premium)"
+ws["C13"] = "=C12"; ws["C13"].font = BOLD; ws["C13"].number_format = PCT2; ws["C13"].border = BORDER
+ws["D13"] = "Real venues add a small clamped interest-rate component; this simplifies to the pure premium, which dominates in practice."
+ws["D13"].font = ITALIC_GRAY
+ws["B14"] = "Funding periods per year (365d x 24h / interval)"
+ws["C14"] = "=IFERROR(365*24/C8,\"-\")"; ws["C14"].number_format = NUM; ws["C14"].border = BORDER
+ws["B15"] = "Annualized funding rate"
+ws["C15"] = '=IFERROR(C13*C14,"-")'; ws["C15"].font = BOLD; ws["C15"].number_format = PCT; ws["C15"].border = BORDER
+
+ws["B17"] = "Basis Trade (long spot, short perp -- delta-neutral)"; ws["B17"].font = BOLD; ws["B17"].fill = GRAY_FILL
+ws["B18"] = "Funding received this interval (short perp collects when funding > 0)"
+ws["C18"] = '=IFERROR(C9*C13,"-")'; ws["C18"].number_format = CUR; ws["C18"].border = BORDER
+ws["B19"] = "Annualized funding income"
+ws["C19"] = '=IFERROR(C9*C15,"-")'; ws["C19"].font = BOLD; ws["C19"].number_format = CUR; ws["C19"].border = BORDER
+
+for i, h in enumerate(["", "Spot/perp move", "-20%", "-10%", "0%", "+10%", "+20%"], start=1):
+    ws.cell(row=21, column=i, value=h)
+style_header_row(ws, 21, 5, start_col=3)
+moves = [-0.20, -0.10, 0.0, 0.10, 0.20]
+ws["B22"] = "Spot leg P&L (long)"
+ws["B23"] = "Perp leg P&L (short, tracks spot 1:1)"
+ws["B24"] = "Net position P&L (delta-neutral check)"
+for i, m in enumerate(moves, start=3):
+    col = get_column_letter(i)
+    ws.cell(row=22, column=i, value=f"=$C$9*{m}").number_format = CUR
+    ws.cell(row=23, column=i, value=f"=-$C$9*{m}").number_format = CUR
+    ws.cell(row=24, column=i, value=f"={col}22+{col}23").number_format = CUR
+    for row in (22, 23, 24):
+        ws.cell(row=row, column=i).border = BORDER
+ws["B24"].font = BOLD
+ws["B26"] = "The basis trade's return is the funding income above, isolated from price risk -- the net row is ~0 across every move because the position is deliberately delta-neutral. Real risk: the premium narrowing/widening before the trade is unwound, and exchange/counterparty risk on both legs."
+ws["B26"].font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- COMPARABLE PROTOCOLS ----------------
 ws = wb.create_sheet("Comparable Protocols")
 set_col_widths(ws, [4, 18, 14, 14, 14, 14, 12, 12, 12])
@@ -193,6 +254,22 @@ ws["B10"] = ("A holder who doesn't add to their position loses this much ownersh
              "position's dollar value from falling.")
 ws["B10"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Funding rate simplified to = premium, (Perp-Spot)/Spot", "Common simplified perpetual-futures funding model used by major venues", "Standard practice", "Real venues add a small clamped interest-rate component this omits; premium dominates in practice"),
+        ("NVT ratio, Mkt cap/TVL, FDV/TVL", "Standard on-chain valuation multiples (crypto-native analogues to P/E, P/B)", "Standard practice", "No universally agreed 'correct' NVT level -- used relatively (vs. history or comps), not as an absolute valuation anchor"),
+        ("Flat annual emission schedule (Supply Emission Schedule tab)", "Simplified planning approximation", "Standard practice", "Real token unlocks are usually cliff + linear per allocation bucket -- this is not a substitute for the actual unlock table"),
+        ("Inflationary yield vs. real yield split (Staking Yield tab)", "Standard DeFi staking-yield decomposition (emissions dilution vs. protocol fee revenue)", "Standard practice", "Real yield requires accurate protocol fee-revenue data, which varies widely in disclosure quality across protocols"),
+    ],
+    checks=[
+        ("Basis trade is delta-neutral: net P&L is 0 across every spot/perp move", "=SUMPRODUCT(ABS('Perp Funding & Basis'!C24:G24))", "0 (exact) -- long spot + short perp cancels price risk by construction"),
+        ("Annualized funding income = notional x annualized funding rate", "=IFERROR('Perp Funding & Basis'!C19-('Perp Funding & Basis'!C9*'Perp Funding & Basis'!C15),\"-\")", "0 (exact) once spot price is populated; \"-\" on a blank template"),
+        ("Allocation percentages sum to 100% of max supply", "=SUM(Tokenomics!D5:D9)", "100% (once allocations are populated)"),
+        ("Circulating supply never exceeds max supply in the emission schedule", "=IF(MAX('Supply Emission Schedule'!C7:G7)<=Tokenomics!C10,TRUE,FALSE)", "TRUE"),
+    ],
+)
 
 add_refresh_log(wb)
 

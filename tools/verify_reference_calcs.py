@@ -679,6 +679,52 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Crypto: perpetual futures funding rate + delta-neutral cash-and-carry
+# basis trade (long spot, short perp) -- funding income isolated from
+# price risk by construction.
+# ---------------------------------------------------------------------
+def check_crypto_perp_funding_basis():
+    path = os.path.join(REPO_ROOT, "16_Crypto_Digital_Assets", "_template_CRYPTO.xlsx")
+    perp_price, spot_price, interval_hours, notional = 100.50, 100.00, 8, 1_000_000
+
+    def populate(wb):
+        pf = wb["Perp Funding & Basis"]
+        pf["C6"], pf["C7"], pf["C8"], pf["C9"] = perp_price, spot_price, interval_hours, notional
+
+    wb = with_recalc(path, populate)
+    pf = wb["Perp Funding & Basis"]
+
+    premium = (perp_price - spot_price) / spot_price
+    periods_per_year = 365 * 24 / interval_hours
+    annualized_rate = premium * periods_per_year
+    funding_received = notional * premium
+    annualized_income = notional * annualized_rate
+
+    ok = True
+    details = []
+    checks_ = [
+        ("premium", pf["C12"].value, premium),
+        ("periods/yr", pf["C14"].value, periods_per_year),
+        ("annualized funding rate", pf["C15"].value, annualized_rate),
+        ("funding received/interval", pf["C18"].value, funding_received),
+        ("annualized funding income", pf["C19"].value, annualized_income),
+    ]
+    for label, sheet_val, ref_val in checks_:
+        this_ok = close(sheet_val, ref_val)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val} ref={ref_val:.4f} {'OK' if this_ok else 'MISMATCH'}")
+
+    # delta-neutrality: net P&L must be exactly 0 across every spot/perp move,
+    # since the position is long spot + short an equal notional of perp
+    net_pnls = [pf.cell(row=24, column=c).value for c in range(3, 8)]
+    delta_neutral = all(close(v, 0, tol=1e-6) for v in net_pnls)
+    ok = ok and delta_neutral
+    details.append(f"delta-neutral across all 5 moves: {net_pnls} ({'OK' if delta_neutral else 'FAIL'})")
+
+    return "Crypto: perp funding rate + delta-neutral basis trade", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Commodities: cost-of-carry model, F = S x e^((r+u-y)T), solved for the
 # implied convenience yield from the market's own observed futures curve.
 # ---------------------------------------------------------------------
@@ -1035,6 +1081,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_crypto_perp_funding_basis,
     check_commodities_convenience_yield,
     check_am_gp_carry_clawback,
     check_credit_ecf_sweep_stepdown,
