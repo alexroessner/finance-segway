@@ -111,6 +111,84 @@ ws["B18"] = "Standard volume-weighted chain-ladder. Link factors use only accide
 ws["B18"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
 
+# ---------------- BORNHUETTER-FERGUSON ----------------
+# Chain-ladder's weakness shows up hardest on immature accident years: its
+# ultimate = actual-reported-to-date x CDF, and for a fresh AY the CDF can
+# be large (2x, 3x+) while actual-to-date is thin and noisy — multiplying a
+# small unstable number by a big factor makes the projection swing wildly
+# on data that doesn't deserve that much weight yet. Bornhuetter-Ferguson
+# (1972) fixes this by not trusting the reported-to-date figure to carry
+# the whole projection: it splits ultimate into what's ALREADY reported
+# (trust the data) plus an IBNR piece built from an INDEPENDENT a priori
+# expected-loss estimate (pricing loss ratio x earned premium), scaled by
+# how much of the loss is expected to still be unreported. As a year
+# matures (CDF -> 1), the a priori piece shrinks to zero and BF converges
+# to chain-ladder and to the actual figure itself — they agree exactly at
+# full maturity, which is the standard sanity check on this method.
+ws = wb.create_sheet("Bornhuetter-Ferguson")
+set_col_widths(ws, [4, 16, 14, 14, 14, 12, 12, 14, 14, 16, 40])
+ws["B2"] = "Bornhuetter-Ferguson Reserving"; ws["B2"].font = TITLE
+ws["B4"] = "Expected loss ratio (a priori, %)"
+ws["C4"] = 0.60; ws["C4"].font = BLUE; ws["C4"].fill = YELLOW_FILL
+ws["C4"].number_format = PCT; ws["C4"].border = BORDER
+ws["D4"] = "From pricing / plan, independent of the loss triangle itself — the whole point is not to derive this from the same thin data chain-ladder relies on"
+ws["D4"].font = ITALIC_GRAY
+
+headers = ["", "Accident Yr", "Earned Premium", "Expected Ultimate\n(ELR x Premium)",
+           "Actual Reported\n(latest diagonal)", "CDF", "% Reported\n(1/CDF)",
+           "BF IBNR", "BF Ultimate", "Chain-Ladder\nUltimate", "BF - CL Difference"]
+for i, h in enumerate(headers, start=1):
+    c = ws.cell(row=6, column=i, value=h.replace("\n", " "))
+style_header_row(ws, 6, 9, start_col=2)
+
+acc_years_bf = [f"AY{2020+i}" for i in range(6)]
+# Same latest-diagonal / CDF cells as the Loss Reserve Triangle tab, keyed
+# by accident year (most mature first, matching that tab's row order).
+triangle_refs = [
+    ("H5", "H15"), ("G6", "G15"), ("F7", "F15"),
+    ("E8", "E15"), ("D9", "D15"), ("C10", "C15"),
+]
+r = 7
+for ay, (latest_cell, cdf_cell) in zip(acc_years_bf, triangle_refs):
+    ws.cell(row=r, column=2, value=ay).font = BOLD
+    prem = ws.cell(row=r, column=3, value=0)
+    prem.font = BLUE; prem.fill = YELLOW_FILL; prem.number_format = CUR; prem.border = BORDER
+    ws.cell(row=r, column=4, value=f"=C{r}*$C$4").number_format = CUR
+    ws.cell(row=r, column=5, value=f"='Loss Reserve Triangle'!{latest_cell}").number_format = CUR
+    ws.cell(row=r, column=5).font = GREEN
+    ws.cell(row=r, column=6, value=f"='Loss Reserve Triangle'!{cdf_cell}").number_format = '0.000'
+    ws.cell(row=r, column=6).font = GREEN
+    ws.cell(row=r, column=7, value=f"=IFERROR(1/F{r},\"-\")").number_format = PCT
+    ws.cell(row=r, column=8, value=f"=IFERROR(D{r}*(1-G{r}),\"-\")").number_format = CUR
+    ws.cell(row=r, column=9, value=f"=IFERROR(E{r}+H{r},\"-\")").number_format = CUR
+    ws.cell(row=r, column=9).font = BOLD
+    ws.cell(row=r, column=10, value=f"='Loss Reserve Triangle'!I{5 + (r - 7)}").number_format = CUR
+    ws.cell(row=r, column=10).font = GREEN
+    ws.cell(row=r, column=11, value=f"=IFERROR(I{r}-J{r},\"-\")").number_format = CUR
+    for col in range(3, 12):
+        ws.cell(row=r, column=col).border = BORDER
+    r += 1
+total_row_bf = r
+ws.cell(row=total_row_bf, column=2, value="Total").font = BOLD
+for col, letter in ((3, "C"), (4, "D"), (8, "H"), (9, "I"), (10, "J")):
+    ws.cell(row=total_row_bf, column=col, value=f"=SUM({letter}7:{letter}{total_row_bf - 1})")
+    ws.cell(row=total_row_bf, column=col).font = BOLD
+    ws.cell(row=total_row_bf, column=col).number_format = CUR
+    ws.cell(row=total_row_bf, column=col).border = BORDER
+
+ws.cell(row=total_row_bf + 2, column=2,
+        value="BF Ultimate = Actual reported + Expected ultimate x (1 - 1/CDF). At full maturity "
+              "(CDF=1) the IBNR term vanishes and BF collapses to exactly the actual/chain-ladder "
+              "figure — check the AY2020/AY2021 rows above, where CDF=1.000 and the BF-CL "
+              "difference is exactly 0.")
+ws.cell(row=total_row_bf + 2, column=2).font = ITALIC_GRAY
+ws.cell(row=total_row_bf + 3, column=2,
+        value="For the least mature year (highest CDF), chain-ladder leans hardest on the thinnest, "
+              "noisiest actual data — that's exactly where BF's independent prior does the most work "
+              "pulling the estimate away from a potentially unstable chain-ladder projection.")
+ws.cell(row=total_row_bf + 3, column=2).font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- EMBEDDED VALUE ----------------
 ws = wb.create_sheet("Embedded Value")
 set_col_widths(ws, [4, 32, 16, 40])

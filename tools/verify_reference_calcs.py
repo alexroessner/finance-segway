@@ -209,6 +209,84 @@ def check_accrued_interest():
 
 
 # ---------------------------------------------------------------------
+# Bornhuetter-Ferguson: verify against the closed-form definition
+# (BF ultimate = actual reported + expected ultimate x (1 - 1/CDF)) for
+# every accident year, AND the convergence property that makes BF/CL
+# agreement at CDF=1 a meaningful sanity check rather than a coincidence.
+# ---------------------------------------------------------------------
+def check_bornhuetter_ferguson():
+    path = os.path.join(REPO_ROOT, "18_Insurance_Actuarial", "_template_INSURANCE.xlsx")
+    triangle = {
+        5: [100, 150, 180, 195, 200, 200], 6: [120, 180, 216, 234, 240],
+        7: [110, 165, 198, 214.5], 8: [130, 195, 234], 9: [140, 210], 10: [150],
+    }
+    elr = 0.60
+    premium = 350 / elr  # expected ultimate = 350 flat for every AY
+
+    def populate(wb):
+        tri = wb["Loss Reserve Triangle"]
+        for row, vals in triangle.items():
+            for i, v in enumerate(vals):
+                tri.cell(row=row, column=3 + i, value=v)
+        bf = wb["Bornhuetter-Ferguson"]
+        bf["C4"] = elr
+        for r in range(7, 13):
+            bf.cell(row=r, column=3, value=premium)
+
+    wb = with_recalc(path, populate)
+    bf = wb["Bornhuetter-Ferguson"]
+
+    # Actual reported (latest diagonal) and CDF, in AY2020..AY2025 order.
+    # CDF is the volume-weighted chain-ladder chain computed programmatically
+    # from the same `triangle` dict used to populate the sheet -- built the
+    # same way the sheet's own formulas are (volume-weighted link factors,
+    # cumulative product back from Dev6), but as an independent Python
+    # computation rather than a copy of the sheet's formula text.
+    rows_by_ay = [5, 6, 7, 8, 9, 10]  # AY2020..AY2025
+    actual = [triangle[row][-1] for row in rows_by_ay]  # each AY's latest diagonal value
+
+    # link factor from dev period k to k+1 (0-indexed k=0 is Dev1->Dev2):
+    # volume-weighted sum(Dev k+1) / sum(Dev k) over AYs with data in both.
+    link = []
+    for k in range(5):  # 5 transitions: Dev1->2, 2->3, 3->4, 4->5, 5->6
+        num = sum(triangle[row][k + 1] for row in rows_by_ay if len(triangle[row]) > k + 1)
+        den = sum(triangle[row][k] for row in rows_by_ay if len(triangle[row]) > k + 1)
+        link.append(num / den)
+
+    cdf_by_dev = [1.0] * 6  # CDF to ultimate, indexed by dev period (0=Dev1..5=Dev6)
+    cdf_by_dev[5] = 1.0
+    for dev in range(4, -1, -1):
+        cdf_by_dev[dev] = link[dev] * cdf_by_dev[dev + 1]
+    # AY2020 (most mature) sits at Dev6 (index 5); AY2025 (least mature) at Dev1 (index 0).
+    cdf = [cdf_by_dev[5 - i] for i in range(6)]  # AY2020..AY2025
+    ref_bf_ultimate = [actual[i] + 350 * (1 - 1 / cdf[i]) for i in range(6)]
+
+    ok = True
+    mismatches = []
+    for i in range(6):
+        row = 7 + i
+        sheet_val = bf.cell(row=row, column=9).value
+        if not close(sheet_val, ref_bf_ultimate[i]):
+            mismatches.append(f"AY{2020+i}: sheet={sheet_val} ref={ref_bf_ultimate[i]:.4f}")
+    ok = not mismatches
+
+    # Convergence property: at CDF=1 (AY2020, AY2021 in this dataset), BF
+    # must equal chain-ladder EXACTLY, not approximately.
+    diff_2020 = bf.cell(row=7, column=11).value
+    diff_2021 = bf.cell(row=8, column=11).value
+    ok = ok and close(diff_2020, 0, tol=1e-6) and close(diff_2021, 0, tol=1e-6)
+    # And divergence should be monotonically increasing as CDF rises
+    # (least mature year = biggest BF-vs-CL gap).
+    diffs = [bf.cell(row=r, column=11).value for r in range(7, 13)]
+    ok = ok and all(diffs[i] <= diffs[i + 1] + 1e-6 for i in range(5))
+
+    detail = (f"{len(mismatches)} mismatches" + (f" (first: {mismatches[0]})" if mismatches else "")
+              + f" | convergence at CDF=1: AY2020 diff={diff_2020}, AY2021 diff={diff_2021} | "
+              f"diffs monotonically increasing with immaturity: {diffs}")
+    return "Bornhuetter-Ferguson vs. closed-form + chain-ladder convergence at maturity", ok, detail
+
+
+# ---------------------------------------------------------------------
 # Securitization: pool cash flow (CDR/CPR/recovery lag) + the two-
 # directional tranche cascade (principal senior->junior, loss junior->
 # senior) cross-checked cell-by-cell against an independent Python
@@ -691,6 +769,7 @@ CHECKS = [
     check_black_scholes,
     check_bond_duration,
     check_accrued_interest,
+    check_bornhuetter_ferguson,
     check_securitization_tranche_waterfall,
     check_lbo_sources_uses_and_debt_schedule,
     check_lbo_scenario_switch,
