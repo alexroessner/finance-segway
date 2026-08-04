@@ -237,6 +237,72 @@ def check_lbo_sources_uses_and_debt_schedule():
 
 
 # ---------------------------------------------------------------------
+# American option binomial tree: cross-check both the American and
+# European trees against an independent Python CRR re-implementation with
+# the same N, and confirm the textbook boundary condition that an American
+# call on a non-dividend stock is worth EXACTLY the same as its European
+# counterpart (early exercise is never optimal without dividends) — a
+# strong, well-known correctness signal that's cheap to check permanently.
+# ---------------------------------------------------------------------
+def crr_binomial(S, K, T, r, q, sigma, N, is_call, american):
+    dt = T / N
+    u = math.exp(sigma * math.sqrt(dt))
+    d = 1 / u
+    p = (math.exp((r - q) * dt) - d) / (u - d)
+    disc = math.exp(-r * dt)
+    values = []
+    for j in range(N + 1):
+        S_T = S * u ** j * d ** (N - j)
+        values.append(max(S_T - K, 0) if is_call else max(K - S_T, 0))
+    for i in range(N - 1, -1, -1):
+        new_values = []
+        for j in range(i + 1):
+            cont = disc * (p * values[j + 1] + (1 - p) * values[j])
+            if american:
+                S_ij = S * u ** j * d ** (i - j)
+                intrinsic = max(S_ij - K, 0) if is_call else max(K - S_ij, 0)
+                new_values.append(max(intrinsic, cont))
+            else:
+                new_values.append(cont)
+        values = new_values
+    return values[0]
+
+
+def check_american_option_binomial():
+    path = os.path.join(REPO_ROOT, "14_Options_Derivatives", "_template_OPTIONS.xlsx")
+    S, K, T, r, q, sigma, N = 100, 100, 1.0, 0.045, 0.0, 0.30, 10
+    sr = 61  # summary row: American, European, Premium, BS check
+
+    ok = True
+    details = []
+    for opt_type in ("Put", "Call"):
+        def populate(wb, ot=opt_type):
+            ws = wb["American Option (Binomial)"]
+            ws["C5"] = ot
+
+        wb = with_recalc(path, populate)
+        ws = wb["American Option (Binomial)"]
+        sheet_american = ws.cell(row=sr, column=3).value
+        sheet_european = ws.cell(row=sr + 1, column=3).value
+
+        ref_american = crr_binomial(S, K, T, r, q, sigma, N, opt_type == "Call", american=True)
+        ref_european = crr_binomial(S, K, T, r, q, sigma, N, opt_type == "Call", american=False)
+
+        this_ok = close(sheet_american, ref_american) and close(sheet_european, ref_european)
+        ok = ok and this_ok
+        details.append(f"{opt_type}: American sheet={sheet_american:.4f} ref={ref_american:.4f}, "
+                        f"European sheet={sheet_european:.4f} ref={ref_european:.4f}")
+
+        if opt_type == "Call":
+            # No dividends -> American call must equal European call exactly.
+            boundary_ok = close(sheet_american, sheet_european, tol=1e-6)
+            ok = ok and boundary_ok
+            details.append(f"no-dividend call boundary (American==European): {'OK' if boundary_ok else 'FAIL'}")
+
+    return "American option binomial tree (CRR) vs. independent Python re-implementation", ok, "; ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Cover tab field alignment: weekly_refresh_check.py reads Cover!C6 as
 # "Last refreshed" and Cover!C7 as the next material date UNCONDITIONALLY,
 # for every archetype. If a template's Cover tab layout puts a different
@@ -366,6 +432,7 @@ CHECKS = [
     check_black_scholes,
     check_bond_duration,
     check_lbo_sources_uses_and_debt_schedule,
+    check_american_option_binomial,
     check_cover_tab_field_alignment,
     check_vc_waterfall_conservation,
     check_base_archetype_integration,
