@@ -26,3 +26,6 @@ jobs:
 
       - name: Run independent-oracle reference-calc checks
         run: python3 tools/verify_reference_calcs.py
+
+      - name: Validate model maturity claims against evidence
+        run: python3 tools/validate_model_inventory.py

@@ -64,3 +64,58 @@ def add_cover(wb, title, fields):
         r += 1
     ws.sheet_view.showGridLines = False
     return ws
+
+
+def add_sources_checks(wb, sources, checks):
+    """M3 evidence-pack sheet pair (docs/MODEL_GOVERNANCE_STANDARD.md).
+
+    sources: list of (assumption, source, as_of, note) tuples -- where each
+        material input/convention in the model actually comes from.
+    checks: list of (label, formula_str, expect_str) tuples -- live
+        in-workbook reconciliation identities (not a copy of the model's
+        own output; things that must independently tie, e.g. a waterfall
+        summing back to total proceeds, a triangle's row totals matching
+        its diagonal). formula_str is an Excel formula string (with the
+        leading '='); expect_str describes what a passing result looks
+        like, in words, for a human reviewer.
+    """
+    ws = wb.create_sheet("Sources")
+    set_col_widths(ws, [4, 34, 30, 14, 46])
+    ws["B2"] = "Sources"; ws["B2"].font = TITLE
+    ws["B3"] = "What each material assumption or convention in this model comes from."
+    ws["B3"].font = ITALIC_GRAY
+    headers = ["", "Assumption / convention", "Source", "As of", "Note"]
+    for i, h in enumerate(headers, start=1):
+        ws.cell(row=5, column=i, value=h)
+    style_header_row(ws, 5, 4, start_col=2)
+    r = 6
+    for assumption, source, as_of, note in sources:
+        ws.cell(row=r, column=2, value=assumption).font = BLACK
+        ws.cell(row=r, column=3, value=source).font = BLACK
+        ws.cell(row=r, column=4, value=as_of).font = BLACK
+        ws.cell(row=r, column=5, value=note).font = ITALIC_GRAY
+        for c in range(2, 6):
+            ws.cell(row=r, column=c).border = BORDER
+        r += 1
+    ws.sheet_view.showGridLines = False
+
+    ws2 = wb.create_sheet("Checks")
+    set_col_widths(ws2, [4, 40, 18, 46])
+    ws2["B2"] = "Checks"; ws2["B2"].font = TITLE
+    ws2["B3"] = "Live reconciliation identities -- independent of the model's own formulas, must tie."
+    ws2["B3"].font = ITALIC_GRAY
+    headers2 = ["", "Check", "Result", "Passes when"]
+    for i, h in enumerate(headers2, start=1):
+        ws2.cell(row=5, column=i, value=h)
+    style_header_row(ws2, 5, 3, start_col=2)
+    r = 6
+    for label, formula, expect in checks:
+        ws2.cell(row=r, column=2, value=label).font = BLACK
+        c = ws2.cell(row=r, column=3, value=formula)
+        c.font = BOLD; c.border = BORDER
+        ws2.cell(row=r, column=4, value=expect).font = ITALIC_GRAY
+        ws2.cell(row=r, column=2).border = BORDER
+        ws2.cell(row=r, column=4).border = BORDER
+        r += 1
+    ws2.sheet_view.showGridLines = False
+    return ws, ws2
