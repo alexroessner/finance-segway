@@ -261,11 +261,11 @@
       "workbook_template": "_template_FINTECH.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Payments/fintech unit economics.",
+      "purpose": "Payments/fintech unit economics, cohort retention, fraud/chargeback risk, and Durbin-regulated vs. exempt interchange economics.",
       "risk_tier": "Tier 2",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Cover-tab alignment fixed but no new mechanic added since initial build", "No independent-oracle reference check registered"]
+      "maturity": "M3",
+      "reference_checks": ["check_fintech_interchange_durbin"],
+      "known_limitations": ["Interchange rates are illustrative approximations of published schedules, not a specific card program's actual contracted rates", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "restructuring",

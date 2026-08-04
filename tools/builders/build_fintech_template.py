@@ -59,6 +59,53 @@ for r2 in range(14, 21):
     ws.cell(row=r2, column=3).border = BORDER
 ws.sheet_view.showGridLines = False
 
+# ---------------- INTERCHANGE ECONOMICS (DURBIN) ----------------
+ws = wb.create_sheet("Interchange Economics")
+set_col_widths(ws, [4, 40, 18, 18, 40])
+ws["B2"] = "Interchange Economics — Durbin-Regulated vs. Exempt"; ws["B2"].font = TITLE
+ws["B3"] = ("Reg II caps DEBIT interchange for issuers with >$10B in assets. Issuers below that threshold are "
+            "EXEMPT and can charge network-published unregulated rates -- roughly 3x higher on typical "
+            "transaction sizes. This is the actual structural reason many neobanks partner with a small "
+            "\"sponsor bank\" rather than becoming a bank themselves: it isn't just charter overhead, it's "
+            "interchange economics.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Inputs"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+ws["B6"] = "Average transaction size ($)"
+c = ws.cell(row=6, column=3, value=40.00); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = CUR2; c.border = BORDER
+ws["B7"] = "TPV this period ($/mo)"
+ws["C7"] = "='Unit Economics'!C5"; ws["C7"].font = GREEN; ws["C7"].number_format = CUR; ws["C7"].border = BORDER
+ws["B8"] = "Estimated transaction count"
+ws["C8"] = "=IFERROR(C7/C6,\"-\")"; ws["C8"].number_format = NUM; ws["C8"].border = BORDER
+
+ws["B10"] = "Regulated (Durbin-capped, issuing bank > $10B assets)"; ws["B10"].font = BOLD; ws["B10"].fill = GRAY_FILL
+ws["B11"] = "Interchange per transaction (Reg II cap: $0.22 + 0.05% x txn size)"
+ws["C11"] = "=0.22+0.0005*C6"; ws["C11"].number_format = CUR2; ws["C11"].border = BORDER
+ws["B12"] = "Effective interchange rate (% of TPV)"
+ws["C12"] = "=IFERROR(C11/C6,\"-\")"; ws["C12"].number_format = PCT2; ws["C12"].border = BORDER
+ws["B13"] = "Interchange income/cost this period (rate x TPV)"
+ws["C13"] = "=IFERROR(C12*C7,\"-\")"; ws["C13"].font = BOLD; ws["C13"].number_format = CUR; ws["C13"].border = BORDER
+
+ws["B15"] = "Exempt (Durbin-exempt, issuing bank < $10B assets -- typical sponsor-bank structure)"
+ws["B15"].font = BOLD; ws["B15"].fill = GRAY_FILL
+ws["B16"] = "Interchange per transaction (network unregulated rate: $0.04 + 1.65% x txn size)"
+ws["C16"] = "=0.04+0.0165*C6"; ws["C16"].number_format = CUR2; ws["C16"].border = BORDER
+ws["B17"] = "Effective interchange rate (% of TPV)"
+ws["C17"] = "=IFERROR(C16/C6,\"-\")"; ws["C17"].number_format = PCT2; ws["C17"].border = BORDER
+ws["B18"] = "Interchange income/cost this period (rate x TPV)"
+ws["C18"] = "=IFERROR(C17*C7,\"-\")"; ws["C18"].font = BOLD; ws["C18"].number_format = CUR; ws["C18"].border = BORDER
+
+ws["B20"] = "Exempt vs. Regulated Advantage"; ws["B20"].font = BOLD; ws["B20"].fill = GRAY_FILL
+ws["B21"] = "$ difference this period (exempt - regulated)"
+ws["C21"] = "=C18-C13"; ws["C21"].font = BOLD; ws["C21"].number_format = CUR; ws["C21"].border = BORDER
+ws["B22"] = "Annualized $ difference"
+ws["C22"] = "=C21*12"; ws["C22"].number_format = CUR; ws["C22"].border = BORDER
+ws["B23"] = "Exempt uplift (%)"
+ws["C23"] = "=IFERROR(C18/C13-1,\"-\")"; ws["C23"].number_format = PCT; ws["C23"].border = BORDER
+ws["D23"] = "This is a per-transaction-size-dependent advantage -- it shrinks toward zero as average ticket size grows, since the ad-valorem component matters more than the fixed component at high ticket sizes."
+ws["D23"].font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- COHORT RETENTION ----------------
 ws = wb.create_sheet("Cohort Retention")
 set_col_widths(ws, [4, 14] + [10]*8)
@@ -126,6 +173,22 @@ ws["C15"].fill = YELLOW_FILL; ws["C15"].border = BORDER
 ws["D15"] = "Card networks typically flag issuers/acquirers above ~90-100bps fraud-to-TPV as a monitoring risk"
 ws["D15"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Reg II regulated debit interchange cap ($0.22 + 0.05%)", "Federal Reserve Regulation II (Durbin Amendment implementing rule), covered issuers >$10B in assets", "Statutory/regulatory cap", "Includes the optional $0.01 fraud-prevention adjustment folded into the $0.22 base; actual issuer cap can vary slightly by fraud-prevention-standard compliance"),
+        ("Durbin-exempt unregulated debit rate ($0.04 + 1.65%)", "Network-published unregulated debit interchange schedules (Visa/Mastercard), issuers <$10B in assets", "Standard practice / network schedules", "Illustrative approximation of published schedules -- actual rates vary by card program, merchant category, and network"),
+        ("LTV = monthly revenue x gross margin x customer lifetime (1/churn)", "Standard SaaS/subscription LTV formula adapted for fintech unit economics", "Standard practice", "Assumes constant monthly churn -- the Cohort Retention tab's curve-implied multiplier is the more honest number when churn is front-loaded"),
+        ("Fraud loss rate in bps of TPV", "Standard payments-industry convention", "Standard practice", "Card networks typically flag issuers/acquirers above ~90-100bps fraud-to-TPV as a monitoring risk, per the Fraud & Risk tab's note"),
+    ],
+    checks=[
+        ("Exempt interchange income exceeds regulated at typical ticket sizes ($40 test)", "=IF('Interchange Economics'!C6=40,'Interchange Economics'!C18>'Interchange Economics'!C13,TRUE)", "TRUE at the $40 default -- confirms the Durbin-exempt advantage is actually wired, not just labeled"),
+        ("Interchange income ties: rate x TPV = per-txn fee x transaction count (Regulated)", "=IFERROR('Interchange Economics'!C13-('Interchange Economics'!C11*'Interchange Economics'!C8),\"-\")", "0 (exact) once TPV is populated"),
+        ("Interchange income ties: rate x TPV = per-txn fee x transaction count (Exempt)", "=IFERROR('Interchange Economics'!C18-('Interchange Economics'!C16*'Interchange Economics'!C8),\"-\")", "0 (exact) once TPV is populated"),
+        ("Cohort M0 retention is always 100% by definition", "=IF(COUNTIF('Cohort Retention'!C5:C8,1)=4,TRUE,FALSE)", "TRUE"),
+    ],
+)
 
 add_refresh_log(wb)
 out_path = "FINTECH_template.xlsx"

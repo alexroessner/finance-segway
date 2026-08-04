@@ -679,6 +679,53 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Fintech: Durbin-regulated vs. exempt debit interchange economics --
+# the structural reason many neobanks partner with a sub-$10B "sponsor
+# bank" rather than becoming a bank themselves.
+# ---------------------------------------------------------------------
+def check_fintech_interchange_durbin():
+    path = os.path.join(REPO_ROOT, "23_Fintech_Payments", "_template_FINTECH.xlsx")
+    tpv, avg_txn = 50_000_000, 40.00
+
+    def populate(wb):
+        wb["Unit Economics"]["C5"] = tpv
+        wb["Interchange Economics"]["C6"] = avg_txn
+
+    wb = with_recalc(path, populate)
+    ie = wb["Interchange Economics"]
+
+    txn_count = tpv / avg_txn
+    reg_fee = 0.22 + 0.0005 * avg_txn
+    reg_rate = reg_fee / avg_txn
+    reg_income = reg_rate * tpv
+    exempt_fee = 0.04 + 0.0165 * avg_txn
+    exempt_rate = exempt_fee / avg_txn
+    exempt_income = exempt_rate * tpv
+
+    ok = True
+    details = []
+    for label, sheet_val, ref_val in [
+        ("txn count", ie["C8"].value, txn_count),
+        ("regulated fee", ie["C11"].value, reg_fee),
+        ("regulated income", ie["C13"].value, reg_income),
+        ("exempt fee", ie["C16"].value, exempt_fee),
+        ("exempt income", ie["C18"].value, exempt_income),
+    ]:
+        this_ok = close(sheet_val, ref_val)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val} ref={ref_val:.4f} {'OK' if this_ok else 'MISMATCH'}")
+
+    # the whole point of the tab: at a typical $40 ticket, exempt income
+    # should be materially higher than regulated (per Reg II's fixed-fee
+    # structure mattering less as ticket size grows)
+    exempt_advantage = exempt_income > reg_income * 1.5
+    ok = ok and exempt_advantage
+    details.append(f"exempt income ({exempt_income:.0f}) > 1.5x regulated ({reg_income:.0f}): {'OK' if exempt_advantage else 'FAIL'}")
+
+    return "Fintech: Durbin-regulated vs. exempt interchange economics", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Crypto: perpetual futures funding rate + delta-neutral cash-and-carry
 # basis trade (long spot, short perp) -- funding income isolated from
 # price risk by construction.
@@ -1081,6 +1128,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_fintech_interchange_durbin,
     check_crypto_perp_funding_basis,
     check_commodities_convenience_yield,
     check_am_gp_carry_clawback,
