@@ -679,6 +679,53 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Venture Capital: capped participating preferred -- the payout "kink"
+# where a rational holder switches from taking pref+participation to
+# converting to common once the cap makes conversion strictly better.
+# ---------------------------------------------------------------------
+def check_vc_participating_preferred_cap():
+    path = os.path.join(REPO_ROOT, "13_Venture_Capital", "_template_VC.xlsx")
+    invested, pref_mult, cap_mult, ownership = 10_000_000, 1.0, 3.0, 0.20
+    exit_values = [20_000_000, 50_000_000, 80_000_000, 100_000_000, 150_000_000, 200_000_000, 500_000_000]
+
+    def populate(wb):
+        pp = wb["Participating Preferred"]
+        pp["C6"], pp["C7"], pp["C8"], pp["C9"] = invested, pref_mult, cap_mult, ownership
+
+    wb = with_recalc(path, populate)
+    pp = wb["Participating Preferred"]
+
+    pref = invested * pref_mult
+    cap = invested * cap_mult
+    ok = True
+    details = []
+    for i, ev in enumerate(exit_values):
+        col = 3 + i
+        uncapped = pref + ownership * max(ev - pref, 0)
+        capped = min(uncapped, cap)
+        as_converted = ownership * ev
+        actual = max(capped, as_converted)
+        ref_election = "CONVERT TO COMMON" if actual == as_converted else "TAKE PREF + PARTICIPATE"
+
+        sheet_actual = pp.cell(row=16, column=col).value
+        sheet_election = pp.cell(row=17, column=col).value
+        this_ok = close(sheet_actual, actual) and sheet_election == ref_election
+        ok = ok and this_ok
+        details.append(f"EV ${ev/1e6:.0f}mm: payout sheet={sheet_actual:.0f}/ref={actual:.0f}, "
+                        f"election sheet='{sheet_election}' ref='{ref_election}' {'OK' if this_ok else 'MISMATCH'}")
+
+    # the whole point: at low exits, pref+participation wins; at high exits (above
+    # the cap crossover), conversion wins -- confirm BOTH regimes are actually hit
+    low_regime = pp.cell(row=17, column=3).value == "TAKE PREF + PARTICIPATE"
+    high_regime = pp.cell(row=17, column=9).value == "CONVERT TO COMMON"
+    both_regimes_hit = low_regime and high_regime
+    ok = ok and both_regimes_hit
+    details.append(f"both regimes exercised across the sweep: {'OK' if both_regimes_hit else 'FAIL'}")
+
+    return "VC: capped participating preferred payout kink", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Trade Finance: early-payment discount implied APR (the classic
 # "2/10 net 30" corporate-finance factoid) + reverse factoring priced
 # off the buyer's stronger credit.
@@ -1487,6 +1534,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_vc_participating_preferred_cap,
     check_trade_finance_dynamic_discounting,
     check_restructuring_ev_sensitivity,
     check_real_estate_lp_gp_promote,

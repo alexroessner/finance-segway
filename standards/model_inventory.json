@@ -121,11 +121,11 @@
       "workbook_template": "_template_VC.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Exit proceeds waterfall across pref stack and as-converted regimes.",
+      "purpose": "Exit proceeds waterfall across pref stack and as-converted regimes, cap table, round modeling, SAFE conversion, and capped participating preferred.",
       "risk_tier": "Tier 2",
-      "maturity": "M2",
-      "reference_checks": ["check_vc_waterfall_conservation"],
-      "known_limitations": ["No Sources/Checks sheet or model card/validation record yet (M3 gate)", "No participating-preferred-with-cap or multi-round dilution mechanic"]
+      "maturity": "M3",
+      "reference_checks": ["check_vc_waterfall_conservation", "check_vc_participating_preferred_cap"],
+      "known_limitations": ["Participating-preferred model is single-class (vs. 'everyone else' pool), not a full multi-class cascade", "Exit waterfall's regime switch is whole-cap-table, not per-class conversion election (documented on the sheet)", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "options-derivatives",

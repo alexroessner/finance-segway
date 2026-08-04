@@ -186,6 +186,55 @@ ws["B13"] = ("Simplification: switches the WHOLE cap table between the pref-stac
 ws["B13"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
 
+# ---------------- PARTICIPATING PREFERRED (CAPPED) ----------------
+ws = wb.create_sheet("Participating Preferred")
+set_col_widths(ws, [4, 30, 13, 13, 13, 13, 13, 13, 46])
+ws["B2"] = "Capped Participating Preferred: the Payout \"Kink\""; ws["B2"].font = TITLE
+ws["B3"] = ("A structurally different preference from the 1x non-participating pref on the Exit Waterfall tab: "
+            "participating preferred takes its liquidation pref off the top AND THEN ALSO shares pro-rata in "
+            "what's left, alongside common -- \"double dipping.\" A cap limits total return to a multiple of "
+            "invested capital; once uncapped participation would exceed the cap, a rational holder converts to "
+            "common instead and gives up the pref entirely. That crossover is the kink.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Inputs"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+ws["B6"] = "Invested amount ($)"
+c = ws.cell(row=6, column=3, value=10_000_000); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = CUR; c.border = BORDER
+ws["B7"] = "Liquidation preference multiple (x)"
+c = ws.cell(row=7, column=3, value=1.0); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = MULT; c.border = BORDER
+ws["B8"] = "Participation cap (total return multiple, x)"
+c = ws.cell(row=8, column=3, value=3.0); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = MULT; c.border = BORDER
+ws["B9"] = "As-converted ownership % (this class's fully-diluted share)"
+c = ws.cell(row=9, column=3, value=0.20); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = PCT; c.border = BORDER
+
+exit_values = [20_000_000, 50_000_000, 80_000_000, 100_000_000, 150_000_000, 200_000_000, 500_000_000]
+ws["B11"] = "Exit enterprise value"
+for i, v in enumerate(exit_values, start=3):
+    c = ws.cell(row=11, column=i, value=v); c.font = BOLD; c.fill = GRAY_FILL; c.number_format = CUR
+ws["B12"] = "Liquidation preference ($)"
+ws["B13"] = "Uncapped participating payout (pref + pro-rata of the rest)"
+ws["B14"] = "Capped payout (MIN of uncapped, cap x invested)"
+ws["B15"] = "As-converted payout (forgo pref, straight pro-rata of total)"
+ws["B16"] = "Actual payout (rational holder takes the higher)"
+ws["B17"] = "Election"
+for i, v in enumerate(exit_values, start=3):
+    letter = get_column_letter(i)
+    ws.cell(row=12, column=i, value="=$C$6*$C$7").number_format = CUR
+    ws.cell(row=13, column=i, value=f"={letter}12+$C$9*MAX({letter}11-{letter}12,0)").number_format = CUR
+    ws.cell(row=14, column=i, value=f"=MIN({letter}13,$C$6*$C$8)").number_format = CUR
+    ws.cell(row=15, column=i, value=f"=$C$9*{letter}11").number_format = CUR
+    ws.cell(row=16, column=i, value=f"=MAX({letter}14,{letter}15)").number_format = CUR
+    ws.cell(row=16, column=i).font = BOLD
+    ws.cell(row=17, column=i, value=f'=IF({letter}16={letter}15,"CONVERT TO COMMON","TAKE PREF + PARTICIPATE")')
+    for row in range(12, 18):
+        ws.cell(row=row, column=i).border = BORDER
+
+ws["B19"] = "Effective multiple at the cap crossover"
+ws["C19"] = "=IFERROR(C8,\"-\")"; ws["C19"].number_format = MULT; ws["C19"].border = BORDER
+ws["D19"] = "Above the exit value where as-converted alone would already return more than the cap, participating preferred is strictly worse than plain common -- the cap exists to bound the PREFERRED holder's return, not to help them"
+ws["D19"].font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- COMPARABLE FINANCINGS ----------------
 ws = wb.create_sheet("Comparable Financings")
 set_col_widths(ws, [4, 20, 14, 16, 16, 16, 20])
@@ -201,6 +250,22 @@ for r in range(5, 13):
         if c in (5, 6):
             cell.number_format = CUR
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Capped participating preferred: pref + pro-rata, capped, MAX vs. as-converted", "Standard VC/PE preferred-stock term-sheet mechanics", "Standard practice", "Single-class simplification -- models one participating class against 'everyone else' as a pool, not a full multi-class cascade"),
+        ("1x non-participating pref-stack vs. as-converted exit waterfall", "Standard VC exit-waterfall mechanics", "Standard practice", "Whole-cap-table regime switch (see the tab's own note) -- an approximation of the true class-by-class conversion election"),
+        ("SAFE conversion: lower of cap price, discount price, round price", "Standard Y Combinator SAFE / convertible-note conversion mechanics", "Standard practice", "Assumes a single SAFE with both cap and discount -- some SAFEs have only one or the other"),
+        ("Pre/post-money round math with option-pool top-up", "Standard VC financing-round mechanics", "Standard practice", "Assumes the option pool top-up is sized post-money and dilutes pre-round holders only, the most common (but not universal) convention"),
+    ],
+    checks=[
+        ("Capped payout never exceeds the cap (invested x cap multiple)", "=IF(MAX('Participating Preferred'!C14:I14)<=('Participating Preferred'!$C$6*'Participating Preferred'!$C$8)*1.0000001,TRUE,FALSE)", "TRUE -- the cap is an upper bound by construction"),
+        ("At the largest exit value, the rational holder converts to common (cap made pref strictly worse)", "=IF('Participating Preferred'!I17=\"CONVERT TO COMMON\",TRUE,FALSE)", "TRUE at the default $500mm exit -- confirms the cap actually binds somewhere in the sweep, not just in theory"),
+        ("At the smallest exit value, the rational holder takes pref+participation (pref is still worth more)", "=IF('Participating Preferred'!C17=\"TAKE PREF + PARTICIPATE\",TRUE,FALSE)", "TRUE at the default $20mm exit"),
+        ("VC exit waterfall total distributed ties to total exit proceeds", "='Exit Waterfall'!C11-'Exit Waterfall'!C15", "0 (exact) once exit proceeds are populated"),
+    ],
+)
 
 add_refresh_log(wb)
 
