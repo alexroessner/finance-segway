@@ -111,8 +111,14 @@ tools/
   weekly_refresh_check.py      <- staleness/error/drift scanner
   recalc.py                    <- headless recalculation + formula error check
   verify_reference_calcs.py    <- independent-oracle regression tests (see below)
+  postgres_etl.py              <- loads verified deal outputs into Postgres for cross-portfolio SQL (see db/)
+  verify_postgres_etl.py       <- confirms Postgres matches a fresh extraction from the source workbooks
   template_helpers.py          <- shared openpyxl styling
   builders/                    <- source scripts that generated each _template
+
+db/
+  schema.sql                   <- Postgres portfolio-layer schema (LBO/PE pilot)
+  README.md                    <- setup + example analyst SQL queries
 ```
 
 ## Quickstart
@@ -141,6 +147,18 @@ computing the right number." It runs on every push via
 ```bash
 python3 tools/verify_reference_calcs.py
 ```
+
+## Excel or SQL — analyst's choice
+
+Excel stays the source of truth and calculation engine for every model.
+For domains with multiple populated instances, `db/` adds an optional
+Postgres layer that lets analysts query across a portfolio in SQL instead
+of opening N spreadsheets — fed entirely by values already recalculated
+and verified in the workbooks (no formulas re-implemented in SQL, so
+there's nothing to drift out of sync). Piloted on LBO/PE (4 deals, both
+Base and Downside scenarios) since it's the only domain with enough real
+instances to make cross-portfolio queries meaningful today; see
+`db/README.md` for setup and example queries.
 
 ## License
 
