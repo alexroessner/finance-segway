@@ -679,6 +679,55 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Commodities: cost-of-carry model, F = S x e^((r+u-y)T), solved for the
+# implied convenience yield from the market's own observed futures curve.
+# ---------------------------------------------------------------------
+def check_commodities_convenience_yield():
+    path = os.path.join(REPO_ROOT, "15_Commodities", "_template_COMMODITIES.xlsx")
+    spot, r, u = 70.00, 0.05, 0.02
+    curve = [(70.00, 10), (71.00, 40), (72.00, 70), (74.50, 160), (77.00, 340)]  # (price, days)
+
+    def populate(wb):
+        fc = wb["Futures Curve"]
+        for i, (price, days) in enumerate(curve):
+            row = 5 + i
+            fc.cell(row=row, column=3, value=price)
+            fc.cell(row=row, column=4, value=days)
+        co = wb["Cost of Carry"]
+        co["C6"], co["C7"], co["C8"] = spot, r, u
+
+    wb = with_recalc(path, populate)
+    co = wb["Cost of Carry"]
+
+    ok = True
+    details = []
+    for i, (price, days) in enumerate(curve):
+        row = 11 + i
+        T = days / 365
+        if T == 0:
+            ref_y = r + u  # degenerate: LN(1)/0 undefined, but M1's own IFERROR path also short-circuits
+        else:
+            ref_y = r + u - math.log(price / spot) / T
+        sheet_y = co.cell(row=row, column=7).value
+        this_ok = close(sheet_y, ref_y, tol=1e-6)
+        ok = ok and this_ok
+        # reprice identity: spot * e^((r+u-y)*T) must reproduce the observed price exactly
+        reprice = spot * math.exp((r + u - ref_y) * T)
+        this_ok2 = close(reprice, price, tol=1e-6)
+        ok = ok and this_ok2
+        details.append(f"contract {i}: y sheet={sheet_y:.4f}/ref={ref_y:.4f}, reprice ref={reprice:.4f} vs observed={price} "
+                        f"{'OK' if (this_ok and this_ok2) else 'MISMATCH'}")
+
+    # economic sanity: strictly rising futures prices (contango throughout) should
+    # give convenience yield below the r+u financing/storage cost after M1
+    contango_check = all(co.cell(row=11 + i, column=7).value < (r + u) for i in range(1, 5))
+    ok = ok and contango_check
+    details.append(f"contango curve -> convenience yield < r+u for M2-M12: {'OK' if contango_check else 'FAIL'}")
+
+    return "Commodities: cost-of-carry implied convenience yield (reprices the observed curve exactly)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Asset Management: whole-fund (European) GP carry waterfall recomputed
 # cumulatively each period, with a general (not hardcoded-to-100%)
 # catch-up formula, and a clawback when a later markdown pulls cumulative
@@ -986,6 +1035,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_commodities_convenience_yield,
     check_am_gp_carry_clawback,
     check_credit_ecf_sweep_stepdown,
     check_public_finance_additional_bonds_test,

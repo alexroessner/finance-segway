@@ -149,11 +149,11 @@
       "workbook_template": "_template_COMMODITIES.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Physical/financial commodity exposure and basis analysis.",
+      "purpose": "Physical/financial commodity exposure, basis analysis, hedging, and cost-of-carry / implied convenience yield.",
       "risk_tier": "Tier 2",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Only a day-count bug fix since initial build, never deepened", "No contango/backwardation roll-yield or cost-of-carry mechanic"]
+      "maturity": "M3",
+      "reference_checks": ["check_commodities_convenience_yield"],
+      "known_limitations": ["Uses front-month futures price as a spot proxy rather than a true independent spot input", "Storage cost assumed constant/annualized -- no seasonal storage-cost curve", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "crypto-digital-assets",

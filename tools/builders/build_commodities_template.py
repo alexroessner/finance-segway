@@ -49,6 +49,61 @@ for rr in range(first_row, last_row + 1):
     ws.cell(row=rr, column=7).border = BORDER
 ws.sheet_view.showGridLines = False
 
+# ---------------- COST OF CARRY & CONVENIENCE YIELD ----------------
+ws = wb.create_sheet("Cost of Carry")
+set_col_widths(ws, [4, 16, 14, 12, 16, 18, 18, 18])
+ws["B2"] = "Cost of Carry & Implied Convenience Yield"; ws["B2"].font = TITLE
+ws["B3"] = ("The Futures Curve tab shows THAT a curve is in contango or backwardation. This explains WHY: the "
+            "cost-of-carry model says F = S x e^((r+u-y)T) -- given the market's own observed futures prices, "
+            "solve for y, the convenience yield, which is the market's revealed value of holding physical "
+            "inventory right now (stockout risk, production flexibility) rather than buying the future.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Inputs"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+carry_inputs = [
+    ("Spot price", 0, CUR2),
+    ("Risk-free rate, r (%)", 0.05, PCT2),
+    ("Storage cost, u (% of spot, annualized)", 0.02, PCT2),
+]
+r = 6
+for label, default, fmt in carry_inputs:
+    ws.cell(row=r, column=2, value=label).font = BLACK
+    c = ws.cell(row=r, column=3, value=default); c.font = BLUE; c.fill = YELLOW_FILL
+    c.number_format = fmt; c.border = BORDER
+    r += 1
+
+headers = ["", "Contract month", "Days to expiry", "T (yrs)", "Observed futures price",
+           "Theoretical price (no convenience yield)", "Implied convenience yield, y (%)", "Reprice check (F(y) - observed)"]
+for i, h in enumerate(headers, start=1):
+    ws.cell(row=10, column=i, value=h)
+style_header_row(ws, 10, 7, start_col=2)
+
+carry_rows = [(11, 5), (12, 6), (13, 7), (14, 8), (15, 9)]  # (this sheet's row, Futures Curve's row)
+for this_row, fc_row in carry_rows:
+    ws.cell(row=this_row, column=2, value=f"='Futures Curve'!B{fc_row}").font = GREEN
+    ws.cell(row=this_row, column=3, value=f"='Futures Curve'!D{fc_row}").font = GREEN
+    ws.cell(row=this_row, column=3).number_format = NUM
+    ws.cell(row=this_row, column=4, value=f"=C{this_row}/365").number_format = '0.000'
+    ws.cell(row=this_row, column=5, value=f"='Futures Curve'!C{fc_row}").font = GREEN
+    ws.cell(row=this_row, column=5).number_format = CUR2
+    ws.cell(row=this_row, column=6,
+            value=f"=IFERROR($C$6*EXP(($C$7+$C$8)*D{this_row}),\"-\")").number_format = CUR2
+    ws.cell(row=this_row, column=7,
+            value=f'=IFERROR(IF(OR(D{this_row}=0,$C$6<=0,E{this_row}<=0),"-",$C$7+$C$8-LN(E{this_row}/$C$6)/D{this_row}),"-")')
+    ws.cell(row=this_row, column=7).number_format = PCT2
+    ws.cell(row=this_row, column=7).font = BOLD
+    ws.cell(row=this_row, column=8,
+            value=f'=IFERROR(IF(ISNUMBER(G{this_row}),$C$6*EXP(($C$7+$C$8-G{this_row})*D{this_row})-E{this_row},"-"),"-")')
+    ws.cell(row=this_row, column=8).number_format = '0.0000'
+    for col in range(2, 9):
+        ws.cell(row=this_row, column=col).border = BORDER
+
+ws["B17"] = "Reading it: y > r+u means the curve is in backwardation (physical premium exceeds financing+storage cost)."
+ws["B17"].font = ITALIC_GRAY
+ws["B18"] = "y < r+u means contango (holding physical isn't worth the storage+financing drag) -- consistent with the Futures Curve tab's curve-shape column."
+ws["B18"].font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- ROLL YIELD ----------------
 ws = wb.create_sheet("Roll Yield")
 set_col_widths(ws, [4, 26, 16, 16, 40])
@@ -109,6 +164,22 @@ for i, m in enumerate(moves, start=3):
     ws.cell(row=5, column=i).border = BORDER
     ws.cell(row=6, column=i).border = BORDER
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Cost-of-carry model, F = S x e^((r+u-y)T)", "Standard commodity futures pricing theory (theory of storage)", "Standard practice", "Assumes continuous compounding and a constant storage cost -- real curves can have seasonal storage-cost variation this doesn't capture"),
+        ("Implied convenience yield solved directly from the observed futures price", "Derived from the cost-of-carry identity, not statistically fitted", "Derived", "A point estimate per contract month, not a fitted term-structure model"),
+        ("Roll yield ~ (expiring price / next price) - 1", "Standard commodities practitioner approximation", "Standard practice", "Assumes a constant-maturity roll; a real fund's roll depends on its specific contract weighting schedule"),
+        ("Hedge contracts needed = physical exposure x hedge ratio / contract size", "Standard futures hedging formula", "Standard practice", "Hedge ratio should reflect basis-risk-adjusted beta, not an assumed 1:1 unless justified"),
+    ],
+    checks=[
+        ("Sum of |reprice check| across all 5 contract months (Cost of Carry)", "=IFERROR(SUMPRODUCT(ABS(IF(ISNUMBER('Cost of Carry'!H11:H15),'Cost of Carry'!H11:H15,0))),\"-\")", "~0 -- each month's implied convenience yield exactly reprices the observed futures price by construction"),
+        ("Unhedged P&L is zero at a 0% spot move", "='Sensitivity'!E5", "0 (exact)"),
+        ("Hedged P&L is zero at a 0% spot move", "='Sensitivity'!E6", "0 (exact)"),
+        ("Curve-shape label matches the sign of the annualized basis (M12 vs. M1)", '=IF(\'Futures Curve\'!E9>0,\'Futures Curve\'!G9="Contango",IF(\'Futures Curve\'!E9<0,\'Futures Curve\'!G9="Backwardation",TRUE))', "TRUE"),
+    ],
+)
 
 add_refresh_log(wb)
 
