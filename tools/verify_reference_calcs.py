@@ -34,6 +34,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "tools"))
 
 import openpyxl  # noqa: E402
+from openpyxl.utils import get_column_letter  # noqa: E402
 from recalc import recalc  # noqa: E402
 
 TOL = 1e-4  # relative tolerance for float comparisons
@@ -165,9 +166,15 @@ def check_lbo_sources_uses_and_debt_schedule():
 
     def populate(wb):
         su = wb["Sources & Uses"]
-        su["C5"], su["C6"], su["C7"] = 0, 0, 400   # revolver, TLA, TLB
-        su["C8"], su["C9"], su["C10"] = 0, 100, 0  # notes, sponsor equity, rollover
-        su["F5"], su["F6"] = 450, 50               # purchase price, fees
+        su["C5"], su["C6"], su["C7"] = 0, 300, 200   # revolver, TLA, TLB
+        su["C8"], su["C9"], su["C10"] = 0, 150, 50   # notes, sponsor equity, rollover
+        su["F5"], su["F9"] = 650, 50                 # purchase price, cash to balance sheet
+        ds = wb["Debt Schedule"]
+        ds["K5"], ds["K6"] = 0.05, 0.50              # EBITDA growth, FCF conversion
+        ds["K7"], ds["K8"] = 0.05, 0.07              # TLA mandatory amort %, TLA rate
+        ds["K9"], ds["K10"] = 0.01, 0.095            # TLB mandatory amort %, TLB rate
+        ds["K11"] = 0.75                             # cash sweep %
+        ds["K12"], ds["K13"] = 50, 0.08              # revolver capacity, revolver rate
         ret = wb["Returns"]
         ret["C5"] = 100  # entry EBITDA
 
@@ -179,31 +186,54 @@ def check_lbo_sources_uses_and_debt_schedule():
     uses_total = su["F10"].value
     check_cell = su["C13"].value
 
-    ok = close(sources_total, 500) and close(uses_total, 500) and close(check_cell, 0, tol=1e-6)
+    ok = close(sources_total, 700) and close(uses_total, 700) and close(check_cell, 0, tol=1e-6)
 
-    # Cross-check the debt schedule cash-sweep cascade against an
-    # independent Python re-implementation of the same non-circular
-    # (beginning-balance-interest) mechanic.
+    # Cross-check the FULL multi-tranche cash-sweep cascade (revolver draws
+    # on a shortfall / repays first from any surplus, then TLA is swept to
+    # zero before TLB sees a dollar) against an independent Python
+    # re-implementation of the same non-circular mechanic, for all 6 years
+    # -- not just the final balance, so an error in an early year (e.g. the
+    # revolver draw logic) can't hide behind a correct-by-coincidence Yr5.
     ds = wb["Debt Schedule"]
-    ebitda0, growth = 100, 0.05
-    fcf_conv, amort_pct, sweep_pct, rate = 0.50, 0.01, 0.75, 0.09
-    debt0 = 400.0
-    beginning = debt0
-    for _yr in range(6):  # Yr0..Yr5
-        ebitda = ebitda0 * (1 + growth) ** _yr
-        fcf = ebitda * fcf_conv
-        amort = min(debt0 * amort_pct, beginning)
-        interest = beginning * rate
-        sweep = min(max(0, sweep_pct * (fcf - amort - interest)), beginning - amort)
-        ending = beginning - amort - sweep
-        beginning = ending
-    ref_final_debt = ending
-    sheet_final_debt = ds["H15"].value  # Yr5 total debt
-    ok = ok and close(sheet_final_debt, ref_final_debt)
+    ebitda0, growth, fcf_conv = 100.0, 0.05, 0.50
+    tla_orig, tla_amort_pct, tla_rate = 300.0, 0.05, 0.07
+    tlb_orig, tlb_amort_pct, tlb_rate = 200.0, 0.01, 0.095
+    sweep_pct, rev_capacity, rev_rate = 0.75, 50.0, 0.08
 
+    rev_beg, tla_beg, tlb_beg = 0.0, tla_orig, tlb_orig
+    mismatches = []
+    for yr in range(6):
+        ebitda = ebitda0 * (1 + growth) ** yr
+        fcf = ebitda * fcf_conv
+        tla_mand = min(tla_orig * tla_amort_pct, tla_beg)
+        tlb_mand = min(tlb_orig * tlb_amort_pct, tlb_beg)
+        rev_int, tla_int, tlb_int = rev_beg * rev_rate, tla_beg * tla_rate, tlb_beg * tlb_rate
+        cash_avail = fcf - tla_mand - tlb_mand - rev_int - tla_int - tlb_int
+        if cash_avail < 0:
+            draw_repay = min(-cash_avail, rev_capacity - rev_beg)
+        else:
+            draw_repay = -min(rev_beg, max(0, cash_avail))
+        rev_end = rev_beg + draw_repay
+        excess_for_sweep = max(0, max(0, cash_avail) - rev_beg)
+        sweep_pool = sweep_pct * excess_for_sweep
+        tla_sweep = min(sweep_pool, tla_beg - tla_mand)
+        tla_end = tla_beg - tla_mand - tla_sweep
+        tlb_sweep = min(sweep_pool - tla_sweep, tlb_beg - tlb_mand)
+        tlb_end = tlb_beg - tlb_mand - tlb_sweep
+        ref_total_debt = rev_end + tla_end + tlb_end
+
+        col = get_column_letter(3 + yr)
+        sheet_total_debt = ds[f"{col}30"].value
+        if not close(sheet_total_debt, ref_total_debt):
+            mismatches.append(f"Yr{yr}: sheet={sheet_total_debt} ref={ref_total_debt:.4f}")
+
+        rev_beg, tla_beg, tlb_beg = rev_end, tla_end, tlb_end
+
+    ok = ok and not mismatches
     detail = (f"sources={sources_total} uses={uses_total} check={check_cell} | "
-              f"Yr5 debt: sheet={sheet_final_debt:.4f} python-reimpl={ref_final_debt:.4f}")
-    return "LBO Sources=Uses + debt schedule cash-sweep cascade", ok, detail
+              f"final Yr5 total debt: sheet={ds['H30'].value:.4f} python-reimpl={rev_beg+tla_beg+tlb_beg:.4f}"
+              + (f" | MISMATCHES: {mismatches}" if mismatches else " | all 6 years matched"))
+    return "LBO Sources=Uses + multi-tranche debt schedule (revolver/TLA/TLB) cascade", ok, detail
 
 
 # ---------------------------------------------------------------------
