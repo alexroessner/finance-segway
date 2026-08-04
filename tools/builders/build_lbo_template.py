@@ -53,7 +53,8 @@ ws["B2"] = "[TARGET] — LBO Model"; ws["B2"].font = TITLE
 fields = [("Sponsor:", ""), ("Deal type:", "LBO / take-private / add-on"),
           ("Last refreshed:", "[date]"), ("Next covenant/refinancing date:", "[date]"),
           ("Entry date:", "[date]"),
-          ("Hold period (yrs):", 5), ("Refresh cadence:", "Weekly")]
+          ("Hold period (yrs):", 5), ("Refresh cadence:", "Weekly"),
+          ("Active scenario (Base or Downside):", "Base")]
 r = 4
 for label, default in fields:
     ws.cell(row=r, column=2, value=label).font = BOLD
@@ -107,45 +108,57 @@ ws.sheet_view.showGridLines = False
 # sees a dollar (absolute priority by seniority, same logic as the
 # Restructuring archetype's recovery waterfall).
 ws = wb.create_sheet("Debt Schedule")
-set_col_widths(ws, [4, 30, 12, 12, 12, 12, 12, 12, 4, 32, 14])
+set_col_widths(ws, [4, 30, 12, 12, 12, 12, 12, 12, 4, 40, 12, 12, 14])
 ws["B2"] = "Debt Schedule — Revolver / TLA / TLB (with cash sweep)"; ws["B2"].font = TITLE
 for i, h in enumerate(["", "", "Yr0", "Yr1", "Yr2", "Yr3", "Yr4", "Yr5"], start=1):
     ws.cell(row=4, column=i, value=h)
 style_header_row(ws, 4, 6, start_col=3)
 
-# ---- assumptions block (drives every formula below; columns J:K) ----
+# ---- assumptions block (drives every formula below; columns J:M) ----
+# Base/Downside scenario switching, not a single point estimate — real deal
+# models always run at least two cases, and the protocol's own workbook
+# acceptance gates call out "explicit actual/forecast and Base/Downside
+# boundaries" specifically. Column M ("Active") is what every formula in
+# this sheet actually reads; it's a live switch off Cover!C11, not a copy.
 ws["J4"] = "Assumptions"; ws["J4"].font = BOLD; ws["J4"].fill = GRAY_FILL
-ws["K4"] = ""; ws["K4"].fill = GRAY_FILL
+for col, label in ((11, "Base"), (12, "Downside"), (13, "Active")):
+    c = ws.cell(row=4, column=col, value=label)
+    c.font = BOLD_WHITE; c.fill = HEADER_FILL; c.alignment = Alignment(horizontal="center")
 assumptions = [
-    ("Entry EBITDA growth (%/yr)", 0.05, PCT),
-    ("FCF conversion (FCF / EBITDA, %)", 0.50, PCT),
-    ("TLA mandatory amort (% of original/yr)", 0.05, PCT),
-    ("TLA interest rate (%)", 0.070, PCT2),
-    ("TLB mandatory amort (% of original/yr)", 0.01, PCT),
-    ("TLB interest rate (%)", 0.095, PCT2),
-    ("Cash sweep (% of excess cash, after revolver)", 0.75, PCT),
-    ("Revolver commitment / capacity ($)", 50, CUR),
-    ("Revolver interest rate (%, on drawn balance)", 0.080, PCT2),
+    ("Entry EBITDA growth (%/yr)", 0.05, -0.03, PCT),
+    ("FCF conversion (FCF / EBITDA, %)", 0.50, 0.35, PCT),
+    ("TLA mandatory amort (% of original/yr)", 0.05, 0.05, PCT),
+    ("TLA interest rate (%)", 0.070, 0.085, PCT2),
+    ("TLB mandatory amort (% of original/yr)", 0.01, 0.01, PCT),
+    ("TLB interest rate (%)", 0.095, 0.115, PCT2),
+    ("Cash sweep (% of excess cash, after revolver)", 0.75, 0.75, PCT),
+    ("Revolver commitment / capacity ($)", 50, 50, CUR),
+    ("Revolver interest rate (%, on drawn balance)", 0.080, 0.095, PCT2),
 ]
 r = 5
-for label, default, fmt in assumptions:
+for label, base, downside, fmt in assumptions:
     ws.cell(row=r, column=10, value=label).font = BLACK
-    c = ws.cell(row=r, column=11, value=default); c.font = BLUE; c.fill = YELLOW_FILL
-    c.number_format = fmt; c.border = BORDER
+    cb = ws.cell(row=r, column=11, value=base); cb.font = BLUE; cb.fill = YELLOW_FILL
+    cb.number_format = fmt; cb.border = BORDER
+    cd = ws.cell(row=r, column=12, value=downside); cd.font = BLUE; cd.fill = YELLOW_FILL
+    cd.number_format = fmt; cd.border = BORDER
+    ca = ws.cell(row=r, column=13, value=f'=IF(Cover!$C$11="Downside",L{r},K{r})')
+    ca.font = GREEN; ca.number_format = fmt; ca.border = BORDER
     r += 1
 ws["J14"] = "Original TLA balance (Yr0, $)"
-ws["K14"] = "='Sources & Uses'!C6"; ws["K14"].font = GREEN; ws["K14"].number_format = CUR
-ws["K14"].border = BORDER
+ws["M14"] = "='Sources & Uses'!C6"; ws["M14"].font = GREEN; ws["M14"].number_format = CUR
+ws["M14"].border = BORDER
 ws["J15"] = "Original TLB balance (Yr0, $)"
-ws["K15"] = "='Sources & Uses'!C7"; ws["K15"].font = GREEN; ws["K15"].number_format = CUR
-ws["K15"].border = BORDER
+ws["M15"] = "='Sources & Uses'!C7"; ws["M15"].font = GREEN; ws["M15"].number_format = CUR
+ws["M15"].border = BORDER
 ws["J16"] = "Revolver drawn at close ($)"
-ws["K16"] = "='Sources & Uses'!C5"; ws["K16"].font = GREEN; ws["K16"].number_format = CUR
-ws["K16"].border = BORDER
-ws["J18"] = "Revolver commitment (K12) is total facility SIZE available to draw"
-ws["J19"] = "against, separate from Sources & Uses' 'drawn at close' amount (K16),"
-ws["J20"] = "which is typically 0 for a fresh LBO."
-for rr in (18, 19, 20):
+ws["M16"] = "='Sources & Uses'!C5"; ws["M16"].font = GREEN; ws["M16"].number_format = CUR
+ws["M16"].border = BORDER
+ws["J18"] = "Deal terms (rows 14-16) don't vary by scenario, so they skip the"
+ws["J19"] = "Base/Downside split and go straight in the Active column. Revolver"
+ws["J20"] = "commitment (M12) is total facility SIZE available to draw against,"
+ws["J21"] = "separate from the 'drawn at close' amount (M16, typically 0)."
+for rr in (18, 19, 20, 21):
     ws.cell(row=rr, column=10).font = ITALIC_GRAY
 
 # ---- EBITDA and FCF, grown off the entry EBITDA on the Returns tab ----
@@ -153,11 +166,11 @@ ws["B5"] = "EBITDA"; ws["B5"].font = GREEN
 ws["C5"] = "=Returns!C5"; ws["C5"].font = GREEN
 for col in range(4, 9):
     prev = get_column_letter(col - 1)
-    ws.cell(row=5, column=col, value=f"={prev}5*(1+$K$5)")
+    ws.cell(row=5, column=col, value=f"={prev}5*(1+$M$5)")
 ws["B6"] = "Cash flow available for debt service (FCF)"; ws["B6"].font = BLACK
 for col in range(3, 9):
     letter = get_column_letter(col)
-    ws.cell(row=6, column=col, value=f"={letter}5*$K$6")
+    ws.cell(row=6, column=col, value=f"={letter}5*$M$6")
 for row in (5, 6):
     for c in range(3, 9):
         ws.cell(row=row, column=c).number_format = CUR
@@ -172,13 +185,13 @@ ws["B12"] = "  Draw / (repayment)"
 ws["B13"] = "  Ending balance"
 ws["B14"] = "  Excess cash remaining for term loan sweep"
 
-ws["C9"] = "=$K$16"
+ws["C9"] = "=$M$16"
 for col in range(4, 9):
     prev = get_column_letter(col - 1)
     ws.cell(row=9, column=col, value=f"={prev}13")
 for col in range(3, 9):
     letter = get_column_letter(col)
-    ws.cell(row=10, column=col, value=f"={letter}9*$K$13")
+    ws.cell(row=10, column=col, value=f"={letter}9*$M$13")
     # Cash available = FCF less mandatory amort on BOTH term loans and ALL
     # interest (revolver + TLA + TLB) — everything here depends only on
     # beginning-of-period balances, so this stays acyclic even though the
@@ -186,7 +199,7 @@ for col in range(3, 9):
     ws.cell(row=11, column=col,
             value=f"={letter}6-{letter}18-{letter}25-{letter}10-{letter}21-{letter}28")
     ws.cell(row=12, column=col,
-            value=(f"=IF({letter}11<0,MIN(-{letter}11,$K$12-{letter}9),"
+            value=(f"=IF({letter}11<0,MIN(-{letter}11,$M$12-{letter}9),"
                    f"-MIN({letter}9,MAX(0,{letter}11)))"))
     ws.cell(row=13, column=col, value=f"={letter}9+{letter}12")
     ws.cell(row=14, column=col, value=f"=MAX(0,MAX(0,{letter}11)-{letter}9)")
@@ -204,16 +217,16 @@ ws["B19"] = "  Cash sweep (after revolver fully repaid)"
 ws["B20"] = "  Ending balance"
 ws["B21"] = "  Interest expense (rate x beginning balance)"
 
-ws["C17"] = "=$K$14"
+ws["C17"] = "=$M$14"
 for col in range(4, 9):
     prev = get_column_letter(col - 1)
     ws.cell(row=17, column=col, value=f"={prev}20")
 for col in range(3, 9):
     letter = get_column_letter(col)
-    ws.cell(row=18, column=col, value=f"=MIN($K$14*$K$7,{letter}17)")
-    ws.cell(row=19, column=col, value=f"=MIN($K$11*{letter}14,{letter}17-{letter}18)")
+    ws.cell(row=18, column=col, value=f"=MIN($M$14*$M$7,{letter}17)")
+    ws.cell(row=19, column=col, value=f"=MIN($M$11*{letter}14,{letter}17-{letter}18)")
     ws.cell(row=20, column=col, value=f"={letter}17-{letter}18-{letter}19")
-    ws.cell(row=21, column=col, value=f"={letter}17*$K$8")
+    ws.cell(row=21, column=col, value=f"={letter}17*$M$8")
 for row in (17, 18, 19, 20, 21):
     for c in range(3, 9):
         ws.cell(row=row, column=c).number_format = CUR
@@ -228,16 +241,16 @@ ws["B26"] = "  Cash sweep (only after TLA fully repaid)"
 ws["B27"] = "  Ending balance"
 ws["B28"] = "  Interest expense (rate x beginning balance)"
 
-ws["C24"] = "=$K$15"
+ws["C24"] = "=$M$15"
 for col in range(4, 9):
     prev = get_column_letter(col - 1)
     ws.cell(row=24, column=col, value=f"={prev}27")
 for col in range(3, 9):
     letter = get_column_letter(col)
-    ws.cell(row=25, column=col, value=f"=MIN($K$15*$K$9,{letter}24)")
-    ws.cell(row=26, column=col, value=f"=MIN($K$11*{letter}14-{letter}19,{letter}24-{letter}25)")
+    ws.cell(row=25, column=col, value=f"=MIN($M$15*$M$9,{letter}24)")
+    ws.cell(row=26, column=col, value=f"=MIN($M$11*{letter}14-{letter}19,{letter}24-{letter}25)")
     ws.cell(row=27, column=col, value=f"={letter}24-{letter}25-{letter}26")
-    ws.cell(row=28, column=col, value=f"={letter}24*$K$10")
+    ws.cell(row=28, column=col, value=f"={letter}24*$M$10")
 for row in (24, 25, 26, 27, 28):
     for c in range(3, 9):
         ws.cell(row=row, column=c).number_format = CUR
@@ -271,7 +284,18 @@ ws["B8"] = "Sponsor equity check"; ws["C8"] = "='Sources & Uses'!C9"; ws["C8"].f
 
 ws["B10"] = "Exit"; ws["B10"].font = BOLD; ws["B10"].fill = GRAY_FILL
 ws["B11"] = "Exit EBITDA (Yr5)"; ws["C11"] = "='Debt Schedule'!H5"; ws["C11"].font = GREEN; ws["C11"].number_format = CUR
-ws["B12"] = "Exit multiple"; ws["C12"] = 0; ws["C12"].font = BLUE; ws["C12"].fill = YELLOW_FILL; ws["C12"].number_format = MULT
+# Exit multiple is scenario-aware (entry multiple isn't — it's a contractual
+# fact of the deal that already happened; the exit multiple is the genuinely
+# uncertain forward assumption). Downside cases pair worse operating
+# performance with multiple compression — a distressed exit gets punished
+# twice, not just once on EBITDA.
+ws["D11"] = "Base"; ws["D11"].font = BOLD
+ws["E11"] = "Downside"; ws["E11"].font = BOLD
+ws["B12"] = "Exit multiple (Active)"
+ws["C12"] = '=IFERROR(IF(Cover!$C$11="Downside",E12,D12),"-")'
+ws["C12"].font = BOLD; ws["C12"].fill = YELLOW_FILL; ws["C12"].number_format = MULT
+ws["D12"] = 0; ws["D12"].font = BLUE; ws["D12"].fill = YELLOW_FILL; ws["D12"].number_format = MULT
+ws["E12"] = 0; ws["E12"].font = BLUE; ws["E12"].fill = YELLOW_FILL; ws["E12"].number_format = MULT
 ws["B13"] = "Exit EV"; ws["C13"] = "=C11*C12"; ws["C13"].number_format = CUR
 ws["B14"] = "Less: net debt at exit"; ws["C14"] = "='Debt Schedule'!H30"; ws["C14"].font = GREEN; ws["C14"].number_format = CUR
 ws["B15"] = "Exit equity value"; ws["C15"] = "=C13-C14"; ws["C15"].font = BOLD; ws["C15"].number_format = CUR

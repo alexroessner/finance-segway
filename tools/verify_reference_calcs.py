@@ -170,6 +170,8 @@ def check_lbo_sources_uses_and_debt_schedule():
         su["C8"], su["C9"], su["C10"] = 0, 150, 50   # notes, sponsor equity, rollover
         su["F5"], su["F9"] = 650, 50                 # purchase price, cash to balance sheet
         ds = wb["Debt Schedule"]
+        # Column K = Base scenario input; Cover defaults to "Base", so the
+        # Active column (M) should read straight from K here.
         ds["K5"], ds["K6"] = 0.05, 0.50              # EBITDA growth, FCF conversion
         ds["K7"], ds["K8"] = 0.05, 0.07              # TLA mandatory amort %, TLA rate
         ds["K9"], ds["K10"] = 0.01, 0.095            # TLB mandatory amort %, TLB rate
@@ -234,6 +236,64 @@ def check_lbo_sources_uses_and_debt_schedule():
               f"final Yr5 total debt: sheet={ds['H30'].value:.4f} python-reimpl={rev_beg+tla_beg+tlb_beg:.4f}"
               + (f" | MISMATCHES: {mismatches}" if mismatches else " | all 6 years matched"))
     return "LBO Sources=Uses + multi-tranche debt schedule (revolver/TLA/TLB) cascade", ok, detail
+
+
+# ---------------------------------------------------------------------
+# LBO Base/Downside scenario switch: confirm the Active column genuinely
+# follows Cover's scenario selector (not just showing Base regardless),
+# and that switching to Downside actually degrades leverage and returns in
+# the right direction, not just "some different number."
+# ---------------------------------------------------------------------
+def check_lbo_scenario_switch():
+    path = os.path.join(REPO_ROOT, "03_Private_Equity", "_template_LBO.xlsx")
+
+    def populate(wb, scenario):
+        su = wb["Sources & Uses"]
+        su["C6"], su["C7"], su["C9"], su["C10"] = 300, 200, 150, 50
+        ds = wb["Debt Schedule"]
+        ds["K5"], ds["L5"] = 0.05, -0.03   # EBITDA growth: Base, Downside
+        ds["K6"], ds["L6"] = 0.50, 0.35    # FCF conversion
+        for row in (7, 9, 11, 12):         # amort %, sweep %, revolver capacity same both cases
+            ds[f"K{row}"] = ds[f"L{row}"] = {7: 0.05, 9: 0.01, 11: 0.75, 12: 50}[row]
+        ds["K8"], ds["L8"] = 0.07, 0.085   # TLA rate
+        ds["K10"], ds["L10"] = 0.095, 0.115  # TLB rate
+        ds["K13"], ds["L13"] = 0.08, 0.095  # revolver rate
+        ret = wb["Returns"]
+        ret["C5"], ret["C6"] = 100, 8.0
+        ret["D12"], ret["E12"] = 8.5, 6.5  # exit multiple: Base, Downside
+        cov = wb["Cover"]
+        cov["C9"] = 5
+        cov["C11"] = scenario
+
+    wb_base = with_recalc(path, lambda w: populate(w, "Base"))
+    wb_down = with_recalc(path, lambda w: populate(w, "Downside"))
+
+    ds_base, ds_down = wb_base["Debt Schedule"], wb_down["Debt Schedule"]
+    ret_base, ret_down = wb_base["Returns"], wb_down["Returns"]
+
+    active_base = [ds_base.cell(row=r, column=13).value for r in (5, 6, 8, 10)]
+    active_down = [ds_down.cell(row=r, column=13).value for r in (5, 6, 8, 10)]
+    expected_base = [0.05, 0.50, 0.07, 0.095]
+    expected_down = [-0.03, 0.35, 0.085, 0.115]
+
+    ok = (all(close(a, e) for a, e in zip(active_base, expected_base))
+          and all(close(a, e) for a, e in zip(active_down, expected_down)))
+
+    lev_base, lev_down = ds_base["H32"].value, ds_down["H32"].value
+    moic_base, moic_down = ret_base["C18"].value, ret_down["C18"].value
+    exit_mult_base, exit_mult_down = ret_base["C12"].value, ret_down["C12"].value
+
+    ok = ok and close(exit_mult_base, 8.5) and close(exit_mult_down, 6.5)
+    # Downside must be strictly worse on both leverage and returns -- not
+    # just "a different number," but degraded in the economically correct
+    # direction.
+    ok = ok and (lev_down > lev_base) and (moic_down < moic_base)
+
+    detail = (f"active Base assumptions={active_base} (expect {expected_base}) | "
+              f"active Downside assumptions={active_down} (expect {expected_down}) | "
+              f"Yr5 leverage: Base={lev_base:.3f}x Downside={lev_down:.3f}x | "
+              f"Deal MOIC: Base={moic_base:.3f}x Downside={moic_down:.3f}x")
+    return "LBO Base/Downside scenario switch (Cover selector drives Active column correctly)", ok, detail
 
 
 # ---------------------------------------------------------------------
@@ -487,6 +547,7 @@ CHECKS = [
     check_black_scholes,
     check_bond_duration,
     check_lbo_sources_uses_and_debt_schedule,
+    check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
     check_cover_tab_field_alignment,
