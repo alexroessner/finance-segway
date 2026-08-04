@@ -679,6 +679,80 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Real Estate: LP/GP promote waterfall (compounded pref, no catch-up,
+# straight promote split) -- conservation and GP-outperformance checks.
+# ---------------------------------------------------------------------
+def check_real_estate_lp_gp_promote():
+    path = os.path.join(REPO_ROOT, "17_Real_Estate_REIT", "_template_REAL_ESTATE.xlsx")
+    gpr, vacancy, other_inc, opex, capex_reserve, debt_service = (
+        5_000_000, -250_000, 100_000, -1_800_000, -150_000, -1_200_000,
+    )
+    purchase_price, debt_amount = 45_000_000, 27_000_000
+    noi_growth, exit_cap, selling_cost_pct = 0.02, 0.065, 0.02
+    lp_pct, pref_rate, hold_years, gp_promote_pct = 0.90, 0.08, 5, 0.20
+
+    def populate(wb):
+        pf = wb["Property Pro Forma"]
+        pf["C5"], pf["C6"], pf["C8"], pf["C10"], pf["C12"], pf["C13"] = (
+            gpr, vacancy, other_inc, opex, capex_reserve, debt_service,
+        )
+        cv = wb["Cap Rate & Valuation"]
+        cv["C8"], cv["C10"] = purchase_price, debt_amount
+        fh = wb["5-Year Hold & IRR"]
+        fh["C5"], fh["C6"], fh["C7"] = noi_growth, exit_cap, selling_cost_pct
+        lg = wb["LP-GP Promote"]
+        lg["C6"], lg["C8"], lg["C9"], lg["C10"] = lp_pct, pref_rate, hold_years, gp_promote_pct
+
+    wb = with_recalc(path, populate)
+
+    # independent re-derivation
+    noi0 = gpr + vacancy + other_inc + opex  # = EGI+other-opex... matches Property Pro Forma's own chain
+    total_equity = purchase_price - debt_amount
+    # sheet's Yr1 NOI = current NOI (no growth yet); growth compounds starting Yr2
+    noi_by_year = [noi0 * (1 + noi_growth) ** y for y in range(0, 5)]
+    levered_cf = [noi - abs(debt_service) for noi in noi_by_year]
+    forward_noi_yr6 = noi_by_year[-1] * (1 + noi_growth)
+    exit_value = forward_noi_yr6 / exit_cap
+    selling_costs = -exit_value * selling_cost_pct
+    debt_payoff = -debt_amount
+    net_exit_equity = exit_value + selling_costs + debt_payoff
+    total_distributions = sum(levered_cf) + net_exit_equity
+
+    roc = min(total_distributions, total_equity)
+    pref_target = total_equity * ((1 + pref_rate) ** hold_years - 1)
+    pref_paid = min(max(total_distributions - roc, 0), pref_target)
+    residual = max(total_distributions - roc - pref_paid, 0)
+    gp_promote = residual * gp_promote_pct
+    lp_residual = residual * (1 - gp_promote_pct)
+    lp_total = roc * lp_pct + pref_paid * lp_pct + lp_residual
+    gp_total = roc * (1 - lp_pct) + pref_paid * (1 - lp_pct) + gp_promote
+
+    lg = wb["LP-GP Promote"]
+    ok = True
+    details = []
+    for label, sheet_val, ref_val in [
+        ("total distributions", lg["C14"].value, total_distributions),
+        ("pref target", lg["C18"].value, pref_target),
+        ("residual", lg["C20"].value, residual),
+        ("LP total", lg["C25"].value, lp_total),
+        ("GP total", lg["C26"].value, gp_total),
+    ]:
+        this_ok = close(sheet_val, ref_val)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val:.0f} ref={ref_val:.0f} {'OK' if this_ok else 'MISMATCH'}")
+
+    conservation = close(lg["C25"].value + lg["C26"].value, total_distributions)
+    ok = ok and conservation
+    details.append(f"conservation (LP+GP=total): {'OK' if conservation else 'FAIL'}")
+
+    gp_outperforms = lg["C28"].value > lg["C27"].value
+    ok = ok and gp_outperforms
+    details.append(f"GP multiple ({lg['C28'].value:.3f}) > LP multiple ({lg['C27'].value:.3f}): {'OK' if gp_outperforms else 'FAIL'}")
+
+    return "Real Estate: LP/GP promote waterfall (compounded pref + straight split)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Quant: Probabilistic Sharpe Ratio + Minimum Track Record Length
 # (Bailey & Lopez de Prado) -- independently replicates Excel's exact
 # bias-corrected SKEW/KURT formulas, not just scipy's, to match the
@@ -1311,6 +1385,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_real_estate_lp_gp_promote,
     check_quant_psr_mintrl,
     check_project_finance_dsra,
     check_microfinance_flat_vs_declining,

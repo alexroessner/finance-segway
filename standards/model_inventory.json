@@ -177,11 +177,11 @@
       "workbook_template": "_template_REAL_ESTATE.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "5-year levered hold, exit, IRR/MOIC, DSCR.",
+      "purpose": "5-year levered hold, exit, IRR/MOIC, DSCR, and an LP/GP promote waterfall (sponsor co-invest).",
       "risk_tier": "Tier 1",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Levered-hold mechanic added but never independently verified", "No LP/GP promote waterfall"]
+      "maturity": "M3",
+      "reference_checks": ["check_real_estate_lp_gp_promote"],
+      "known_limitations": ["Promote waterfall models a single terminal distribution event, not a true cash-flow-weighted (XIRR) multi-tier hurdle", "No catch-up tranche (deliberate -- models the simpler, also-common no-catch-up promote structure)", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "insurance-actuarial",

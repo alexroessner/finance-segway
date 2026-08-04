@@ -153,6 +153,80 @@ ws["C28"] = "=IFERROR(SUM(D26:H26)/C9,\"-\")"; ws["C28"].font = BOLD; ws["C28"].
 ws["C28"].border = BORDER
 ws.sheet_view.showGridLines = False
 
+# ---------------- LP/GP PROMOTE WATERFALL ----------------
+ws = wb.create_sheet("LP-GP Promote")
+set_col_widths(ws, [4, 40, 16, 46])
+ws["B2"] = "LP/GP Promote Waterfall (Sponsor Co-Invest)"; ws["B2"].font = TITLE
+ws["B3"] = ("The dominant real-estate syndication structure: sponsor (GP) co-invests alongside LPs, both get "
+            "capital back plus a compounded preferred return pro-rata to their ownership, then the SPONSOR "
+            "earns a promote (disproportionate share) on profit above the preferred -- straight pref-then-split, "
+            "no catch-up tranche, which is genuinely how many real estate deals (as opposed to PE/VC funds) "
+            "are actually structured.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Inputs"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+ws["B6"] = "LP equity share (%)"
+c = ws.cell(row=6, column=3, value=0.90); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = PCT; c.border = BORDER
+ws["B7"] = "GP (sponsor) equity share (%)"
+ws["C7"] = "=1-C6"; ws["C7"].font = BOLD; ws["C7"].number_format = PCT; ws["C7"].border = BORDER
+ws["B8"] = "Preferred return (annual, compounded over the hold)"
+c = ws.cell(row=8, column=3, value=0.08); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = PCT; c.border = BORDER
+ws["B9"] = "Hold period (years, for pref compounding)"
+c = ws.cell(row=9, column=3, value=5); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = NUM; c.border = BORDER
+ws["B10"] = "GP promote (% of profit above preferred)"
+c = ws.cell(row=10, column=3, value=0.20); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = PCT; c.border = BORDER
+
+ws["B12"] = "From the 5-Year Hold"; ws["B12"].font = BOLD; ws["B12"].fill = GRAY_FILL
+ws["B13"] = "Total equity invested"
+ws["C13"] = "='5-Year Hold & IRR'!C9"; ws["C13"].font = GREEN; ws["C13"].number_format = CUR; ws["C13"].border = BORDER
+ws["B14"] = "Total equity distributions (Yr1-Yr5 CF + exit proceeds)"
+ws["C14"] = "=SUM('5-Year Hold & IRR'!D26:H26)"; ws["C14"].font = GREEN; ws["C14"].number_format = CUR; ws["C14"].border = BORDER
+
+ws["B16"] = "Waterfall"; ws["B16"].font = BOLD; ws["B16"].fill = GRAY_FILL
+ws["B17"] = "1. Return of capital"
+ws["C17"] = "=MIN(C14,C13)"; ws["C17"].number_format = CUR; ws["C17"].border = BORDER
+ws["B18"] = "2. Preferred return target (compounded on total capital)"
+ws["C18"] = "=C13*((1+C8)^C9-1)"; ws["C18"].number_format = CUR; ws["C18"].border = BORDER
+ws["B19"] = "2. Preferred return paid"
+ws["C19"] = "=MIN(MAX(C14-C17,0),C18)"; ws["C19"].number_format = CUR; ws["C19"].border = BORDER
+ws["B20"] = "3. Residual profit (above return of capital + preferred)"
+ws["C20"] = "=MAX(C14-C17-C19,0)"; ws["C20"].number_format = CUR; ws["C20"].border = BORDER
+ws["B21"] = "   GP promote share of residual"
+ws["C21"] = "=C20*C10"; ws["C21"].number_format = CUR; ws["C21"].border = BORDER
+ws["B22"] = "   LP share of residual"
+ws["C22"] = "=C20*(1-C10)"; ws["C22"].number_format = CUR; ws["C22"].border = BORDER
+
+ws["B24"] = "Distribution Summary"; ws["B24"].font = BOLD; ws["B24"].fill = GRAY_FILL
+ws["B25"] = "LP total distribution (ROC + pref + residual, pro-rata)"
+ws["C25"] = "=C17*C6+C19*C6+C22"; ws["C25"].font = BOLD; ws["C25"].number_format = CUR; ws["C25"].border = BORDER
+ws["B26"] = "GP total distribution (ROC + pref, pro-rata, + promote)"
+ws["C26"] = "=C17*C7+C19*C7+C21"; ws["C26"].font = BOLD; ws["C26"].number_format = CUR; ws["C26"].border = BORDER
+ws["B27"] = "LP equity multiple"
+ws["C27"] = "=IFERROR(C25/(C13*C6),\"-\")"; ws["C27"].number_format = MULT; ws["C27"].border = BORDER
+ws["B28"] = "GP equity multiple (co-invest + promote)"
+ws["C28"] = "=IFERROR(C26/(C13*C7),\"-\")"; ws["C28"].number_format = MULT; ws["C28"].border = BORDER
+ws["D28"] = "GP multiple should exceed LP's -- that's the promote actually doing its job"
+ws["D28"].font = ITALIC_GRAY
+ws["B29"] = "GP effective promote take (% of total profit)"
+ws["C29"] = "=IFERROR(C21/MAX(C14-C13,0.0000001),\"-\")"; ws["C29"].number_format = PCT; ws["C29"].border = BORDER
+ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("LP/GP promote waterfall: ROC -> pref (pro-rata) -> promote split, no catch-up", "Standard real-estate syndication structure (distinct from PE/VC fund carry, which typically includes a GP catch-up tranche)", "Standard practice", "Simpler than a catch-up structure -- some real estate sponsors do negotiate a catch-up; this models the more common no-catch-up version"),
+        ("Compounded preferred return, capital x ((1+pref)^hold - 1)", "Standard IRR-hurdle preferred-return compounding convention", "Standard practice", "Compounds annually over the FULL hold period as a single lump sum, not on a cash-flow-weighted (true XIRR) basis -- an approximation for a single-distribution-event deal"),
+        ("Cap rate valuation (NOI / cap rate)", "Standard income-approach real estate valuation", "Standard practice", "A single point-estimate cap rate -- real appraisals typically triangulate against comps and replacement cost too"),
+        ("FFO/AFFO", "NAREIT standard REIT reporting definitions", "Industry standard (NAREIT)", "AFFO in particular has no single universally standardized definition across REITs -- this is one common formulation"),
+    ],
+    checks=[
+        ("Waterfall conserves: LP + GP distribution = total distributions", "='LP-GP Promote'!C25+'LP-GP Promote'!C26-'LP-GP Promote'!C14", "0 (exact) -- every dollar distributed lands with either the LP or the GP"),
+        ("GP equity multiple exceeds LP's when there's a promote to earn (profitable deal)", "=IF('LP-GP Promote'!C20>0,'LP-GP Promote'!C28>'LP-GP Promote'!C27,TRUE)", "TRUE -- the promote's whole purpose is GP outperformance when the deal profits"),
+        ("FFO = AFFO before any recurring-capex/straight-line adjustments (both zero)", "=IF(AND('REIT FFO-AFFO'!C9=0,'REIT FFO-AFFO'!C10=0),'REIT FFO-AFFO'!C7='REIT FFO-AFFO'!C11,TRUE)", "TRUE"),
+        ("Exit equity proceeds feed the levered-IRR terminal cash flow exactly", "='5-Year Hold & IRR'!H26-('5-Year Hold & IRR'!G15+'5-Year Hold & IRR'!C23)", "0 (exact)"),
+    ],
+)
+
 add_refresh_log(wb)
 out_path = "REAL_ESTATE_template.xlsx"
 wb.save(out_path)
