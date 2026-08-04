@@ -382,6 +382,91 @@ def check_securitization_tranche_waterfall():
 
 
 # ---------------------------------------------------------------------
+# Securitization: PSA prepayment vector sensitivity (pool WAL by speed)
+# ---------------------------------------------------------------------
+def check_securitization_psa_sensitivity():
+    path = os.path.join(REPO_ROOT, "19_Structured_Finance_Securitization",
+                         "_template_SECURITIZATION.xlsx")
+    pool_balance, wac, wam = 100_000_000.0, 0.065, 360
+    psa_speeds = [0.50, 1.00, 1.50, 2.00, 3.00]
+    N = 12
+
+    def populate(wb):
+        cp = wb["Collateral Pool"]
+        cp["C5"], cp["C6"], cp["C7"] = pool_balance, wac, wam
+        cp["C8"], cp["C9"], cp["C10"], cp["C11"] = 0.09, 0.025, 0.45, 3
+        wf = wb["Waterfall"]
+        for i, f in enumerate([80_000_000.0, 10_000_000.0, 5_000_000.0, 3_000_000.0, 2_000_000.0]):
+            wf.cell(row=5 + i, column=3, value=f)
+
+    wb = with_recalc(path, populate)
+    ws = wb["PSA Prepayment Sensitivity"]
+    pmt = pool_balance * (wac / 12) / (1 - (1 + wac / 12) ** (-wam))
+
+    mismatches = []
+    ref_wal = {}
+    ref_end12 = {}
+    for idx, speed in enumerate(psa_speeds):
+        block_r = 5 + 8 * idx
+        cpr_row, smm_row, beg_row, sched_row, prepay_row, end_row = (
+            block_r + 1, block_r + 2, block_r + 3, block_r + 4, block_r + 5, block_r + 6)
+        beg = [0.0] * N; sched = [0.0] * N; prepay = [0.0] * N; end = [0.0] * N
+        for m in range(N):
+            month = m + 1
+            cpr = min(0.06, 0.002 * month) * speed
+            smm = 1 - (1 - cpr) ** (1 / 12)
+            beg[m] = pool_balance if m == 0 else end[m - 1]
+            sched[m] = max(0.0, min(pmt - beg[m] * wac / 12, beg[m]))
+            prepay[m] = max(0.0, beg[m] - sched[m]) * smm
+            end[m] = beg[m] - sched[m] - prepay[m]
+
+            col = get_column_letter(2 + month)
+            for name, row, ref in ((("cpr", cpr_row, cpr), ("smm", smm_row, smm),
+                                     ("beg", beg_row, beg[m]), ("sched", sched_row, sched[m]),
+                                     ("prepay", prepay_row, prepay[m]), ("end", end_row, end[m]))):
+                sheet_val = ws.cell(row=row, column=2 + month).value
+                if not close(sheet_val, ref):
+                    mismatches.append(f"{speed:.0%} PSA {name} m{month}: sheet={sheet_val} ref={ref:.4f}")
+
+        ref_wal[speed] = sum((m + 1) * (sched[m] + prepay[m]) for m in range(N)) / sum(
+            sched[m] + prepay[m] for m in range(N)) / 12
+        ref_end12[speed] = end[-1]
+
+    ok = not mismatches
+
+    summary_row0 = 46  # "Pool WAL by PSA Speed" header; data rows summary_row0+2..+6
+    for idx, speed in enumerate(psa_speeds):
+        row = summary_row0 + 2 + idx
+        sheet_wal = ws.cell(row=row, column=3).value
+        if not close(sheet_wal, ref_wal[speed]):
+            mismatches.append(f"{speed:.0%} PSA WAL: sheet={sheet_wal} ref={ref_wal[speed]:.4f}")
+    ok = not mismatches
+
+    # WAL is NOT monotonic in speed within this truncated ramp-up window
+    # (verified independently -- higher speed back-loads prepayment DOLLARS
+    # within the window faster than it shortens the balance). Confirm that
+    # non-monotonicity is real, not a stray mismatch: WAL should increase
+    # with speed here, and ending balance should decrease with speed.
+    wal_values = [ref_wal[s] for s in psa_speeds]
+    end_values = [ref_end12[s] for s in psa_speeds]
+    wal_increasing = all(wal_values[i] <= wal_values[i + 1] for i in range(len(wal_values) - 1))
+    end_decreasing = all(end_values[i] >= end_values[i + 1] for i in range(len(end_values) - 1))
+    ok = ok and wal_increasing and end_decreasing
+
+    checks_ws = wb["Checks"]
+    monotonic_end_check = checks_ws.cell(row=6, column=3).value
+    ok = ok and (monotonic_end_check is True)
+
+    detail = (f"{len(mismatches)} cell mismatches across 5 PSA speeds x 12 months"
+              + (f" (first: {mismatches[0]})" if mismatches else "")
+              + f" | WAL 50%->300% PSA: {[round(v, 4) for v in wal_values]} (increasing, not "
+              f"monotonically decreasing -- expected within a truncated ramp-up window) | "
+              f"end bal 50%->300% PSA: {[round(v, 0) for v in end_values]} (decreasing, as expected) | "
+              f"Checks-sheet monotonic-ending-balance check={monotonic_end_check}")
+    return "Securitization: PSA prepayment vector sensitivity (pool WAL by speed)", ok, detail
+
+
+# ---------------------------------------------------------------------
 # LBO: Sources = Uses, and the debt schedule cash-sweep cascade
 # ---------------------------------------------------------------------
 def check_lbo_sources_uses_and_debt_schedule():
@@ -1783,6 +1868,7 @@ CHECKS = [
     check_accrued_interest,
     check_bornhuetter_ferguson,
     check_securitization_tranche_waterfall,
+    check_securitization_psa_sensitivity,
     check_lbo_sources_uses_and_debt_schedule,
     check_lbo_scenario_switch,
     check_american_option_binomial,

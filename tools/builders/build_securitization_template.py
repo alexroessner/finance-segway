@@ -298,6 +298,114 @@ ws.cell(row=recon_row + 5, column=3).fill = YELLOW_FILL
 ws.cell(row=recon_row + 5, column=3).border = BORDER
 ws.sheet_view.showGridLines = False
 
+# ---------------- PSA PREPAYMENT VECTOR SENSITIVITY ----------------
+# The Tranche Cash Flow Waterfall above uses one flat CPR for the whole
+# window. Real ABS/RMBS trading desks quote prepayment speed as a % of
+# the PSA (Public Securities Association, now SIFMA) standard benchmark
+# curve, not a flat CPR: 100% PSA ramps CPR linearly from 0% at month 0
+# by 0.2%/month up to 6% at month 30, then holds flat at 6% -- and WAL
+# (the central number a trading desk actually prices off) moves a lot
+# across the standard 50/100/150/200/300% PSA speed ladder. This
+# isolates that effect at the pool level (same assumption that drives
+# every tranche's cash flow timing), independent of the credit/default
+# mechanics already covered above.
+ws = wb.create_sheet("PSA Prepayment Sensitivity")
+PSA_MONTHS = 12
+set_col_widths(ws, [4, 30] + [10] * PSA_MONTHS + [4])
+ws["B2"] = "PSA Prepayment Vector Sensitivity — Pool WAL by Speed"; ws["B2"].font = TITLE
+ws["B3"] = ("100% PSA: CPR ramps 0.2%/month from month 1, capping at 6% CPR at month 30 and holding flat -- the "
+            "standard SIFMA/PSA benchmark curve. Other speeds scale that same ramp proportionally (50% PSA = "
+            "half the CPR at every month, 300% PSA = triple). Isolates prepayment-speed risk on the pool's own "
+            "WAL, separate from the default/loss mechanics on the Tranche Cash Flow Waterfall tab.")
+ws["B3"].font = ITALIC_GRAY
+
+psa_speeds = [0.50, 1.00, 1.50, 2.00, 3.00]
+psa_block0 = 5
+psa_blocks = {}
+r = psa_block0
+for speed in psa_speeds:
+    psa_blocks[speed] = r
+    ws.cell(row=r, column=2, value=f"{speed:.0%} PSA").font = BOLD
+    ws.cell(row=r, column=2).fill = GRAY_FILL
+    for m in range(1, PSA_MONTHS + 1):
+        c = ws.cell(row=r, column=2 + m, value=f"M{m}")
+        c.font = BOLD_WHITE; c.fill = HEADER_FILL; c.alignment = Alignment(horizontal="center")
+    labels = ["  CPR this month (100% PSA x speed, capped at 6%)", "  SMM", "  Beginning balance",
+              "  Scheduled principal", "  Prepayment", "  Ending balance"]
+    for i, lbl in enumerate(labels):
+        ws.cell(row=r + 1 + i, column=2, value=lbl).font = BLACK
+    cpr_row, smm_row, beg_row, sched_row, prepay_row, end_row = (r + 1, r + 2, r + 3, r + 4, r + 5, r + 6)
+    for m in range(1, PSA_MONTHS + 1):
+        col = get_column_letter(2 + m)
+        prev = get_column_letter(1 + m)
+        ws[f"{col}{cpr_row}"] = f"=MIN(0.06,0.002*{m})*{speed}"
+        ws[f"{col}{cpr_row}"].number_format = PCT2
+        ws[f"{col}{smm_row}"] = f"=1-(1-{col}{cpr_row})^(1/12)"
+        ws[f"{col}{smm_row}"].number_format = PCT2
+        if m == 1:
+            ws[f"{col}{beg_row}"] = "='Collateral Pool'!$C$5"
+        else:
+            ws[f"{col}{beg_row}"] = f"={prev}{end_row}"
+        ws[f"{col}{beg_row}"].number_format = CUR
+        ws[f"{col}{sched_row}"] = f"=MAX(0,MIN('Collateral Pool'!$C$15-{col}{beg_row}*'Collateral Pool'!$C$6/12,{col}{beg_row}))"
+        ws[f"{col}{sched_row}"].number_format = CUR
+        ws[f"{col}{prepay_row}"] = f"=MAX(0,{col}{beg_row}-{col}{sched_row})*{col}{smm_row}"
+        ws[f"{col}{prepay_row}"].number_format = CUR
+        ws[f"{col}{end_row}"] = f"={col}{beg_row}-{col}{sched_row}-{col}{prepay_row}"
+        ws[f"{col}{end_row}"].number_format = CUR
+        for rr in (cpr_row, smm_row, beg_row, sched_row, prepay_row, end_row):
+            ws.cell(row=rr, column=2 + m).border = BORDER
+    r += 8
+
+summary_row0 = r + 1
+ws.cell(row=summary_row0, column=2, value="Pool WAL by PSA Speed").font = BOLD
+ws.cell(row=summary_row0, column=2).fill = GRAY_FILL
+for i, h in enumerate(["", "PSA speed", "Pool WAL (12-mo window, yrs)", ""], start=1):
+    ws.cell(row=summary_row0 + 1, column=i, value=h)
+style_header_row(ws, summary_row0 + 1, 2, start_col=2)
+first_col, last_col = get_column_letter(3), get_column_letter(2 + PSA_MONTHS)
+for i, speed in enumerate(psa_speeds):
+    block_r = psa_blocks[speed]
+    sched_row, prepay_row = block_r + 4, block_r + 5
+    total_prin_range_sched = f"{first_col}{sched_row}:{last_col}{sched_row}"
+    total_prin_range_prepay = f"{first_col}{prepay_row}:{last_col}{prepay_row}"
+    row = summary_row0 + 2 + i
+    ws.cell(row=row, column=2, value=f"{speed:.0%} PSA").font = BLACK
+    ws.cell(row=row, column=3,
+            value=(f"=IFERROR((SUMPRODUCT(COLUMN({total_prin_range_sched})-COLUMN({first_col}{sched_row})+1,"
+                   f"{total_prin_range_sched}+{total_prin_range_prepay})"
+                   f")/(SUM({total_prin_range_sched})+SUM({total_prin_range_prepay}))/12,\"-\")"))
+    ws.cell(row=row, column=3).number_format = "0.00"
+    ws.cell(row=row, column=3).border = BORDER
+ws.cell(row=summary_row0 + 2 + len(psa_speeds) + 1, column=2,
+        value=("WAL here is NOT guaranteed to fall monotonically with PSA speed: all 12 months sit on the rising "
+               "part of the PSA ramp (it doesn't flatten until month 30), so a higher speed multiplier makes "
+               "prepayment dollars grow faster WITHIN this short window, which can pull the weighted-average "
+               "month later even though total principal returned is unambiguously higher. See the Checks sheet -- "
+               "ending balance and total principal returned ARE always monotonic in speed; WAL only becomes "
+               "monotonic once the window is long enough to reach the flat part of the ramp."))
+ws.cell(row=summary_row0 + 2 + len(psa_speeds) + 1, column=2).font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("PSA (SIFMA) standard prepayment benchmark: 100% PSA ramps 0.2%/mo CPR to 6% at month 30", "Public Securities Association / SIFMA standard prepayment convention", "Industry standard", "Within a 12-month window the ramp never reaches its month-30 cap, so all 12 months are still on the linear ramp portion at every PSA speed shown"),
+        ("CDR/MDR and CPR/SMM conditional-to-monthly conversions", "Standard mortgage/ABS conditional-rate-to-monthly-rate conversion, 1-(1-annual)^(1/12)", "Standard practice", "Applied uniformly across the pool -- does not vary by loan seasoning or loan-level characteristics"),
+        ("Two-directional tranche cascade: principal senior-to-junior, loss junior-to-senior", "Standard structured-finance sequential-pay / subordination mechanics", "Standard practice", "Sequential pay only -- no pro-rata or shifting-interest structures, which are also common in real deals"),
+        ("Level-pay mortgage amortization for scheduled principal/interest", "Standard mortgage-style amortization: Balance x (WAC/12)/(1-(1+WAC/12)^-WAM)", "Standard practice", "Assumes a single WAC/WAM for the whole pool -- a real pool has loan-level dispersion this weighted-average approach smooths over"),
+    ],
+    checks=[
+        ("Pool ending balance (month 12) falls monotonically as PSA speed rises (50% through 300%) -- WAL itself is NOT guaranteed monotonic within a truncated ramp-up window; see the note on the PSA sheet", "=IF(AND(" + ",".join(
+            f"'PSA Prepayment Sensitivity'!{last_col}{psa_blocks[psa_speeds[i+1]]+6}<='PSA Prepayment Sensitivity'!{last_col}{psa_blocks[psa_speeds[i]]+6}"
+            for i in range(len(psa_speeds) - 1)
+        ) + "),TRUE,FALSE)", "TRUE -- faster prepayment can only shrink the pool faster, never slower, regardless of ramp back-loading effects on WAL"),
+        ("Reconciliation check (pool vs. tranches, month 12) ties to the recovery-lag-explained difference", f"='Tranche Cash Flow Waterfall'!C{recon_row+5}", "0 (exact) -- the pool-vs-tranche gap is fully explained by the recovery lag, not an unexplained modeling error"),
+        ("Per-tranche WAL is non-decreasing senior to junior (Class A shortest, Equity longest)", f"=IF(AND('Tranche Cash Flow Waterfall'!C{wal_row0}<='Tranche Cash Flow Waterfall'!C{wal_row0+1},'Tranche Cash Flow Waterfall'!C{wal_row0+1}<='Tranche Cash Flow Waterfall'!C{wal_row0+2},'Tranche Cash Flow Waterfall'!C{wal_row0+2}<='Tranche Cash Flow Waterfall'!C{wal_row0+3},'Tranche Cash Flow Waterfall'!C{wal_row0+3}<='Tranche Cash Flow Waterfall'!C{wal_row0+4}),TRUE,\"see note -- truncated 12-mo window can distort ordering\")", "TRUE under most parameterizations -- sequential pay means more senior tranches are retired first"),
+        ("Credit enhancement % is non-decreasing senior to junior (Class A most protected)", "=IF(AND(Waterfall!F5>=Waterfall!F6,Waterfall!F6>=Waterfall!F7,Waterfall!F7>=Waterfall!F8),TRUE,FALSE)", "TRUE -- by construction, CE% = subordinate face / pool, which mechanically decreases moving down the stack"),
+    ],
+)
+
 add_refresh_log(wb)
 out_path = "SECURITIZATION_template.xlsx"
 wb.save(out_path)

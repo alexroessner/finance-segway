@@ -205,11 +205,11 @@
       "workbook_template": "_template_SECURITIZATION.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "CDR-driven pool cash flows and two-directional tranche cascade with WAL.",
+      "purpose": "CDR-driven pool cash flows and two-directional tranche cascade with WAL, plus PSA prepayment-speed sensitivity on pool WAL.",
       "risk_tier": "Tier 1",
-      "maturity": "M2",
-      "reference_checks": ["check_securitization_tranche_waterfall"],
-      "known_limitations": ["No Sources/Checks sheet or model card/validation record yet (M3 gate)", "No prepayment-vector (PSA) sensitivity table"]
+      "maturity": "M3",
+      "reference_checks": ["check_securitization_tranche_waterfall", "check_securitization_psa_sensitivity"],
+      "known_limitations": ["Reconciliation and per-tranche WAL checks assume tranche face totals equal the pool balance, an invariant this model does not itself enforce/check", "Pool WAL is not guaranteed monotonic in PSA speed within a truncated ramp-up window (verified real property, not a bug -- see validation.md); ending balance and total principal returned are always monotonic in speed", "Junior tranches show '-' (undefined WAL) under a realistic capital structure since they receive no principal within the 12-month test window", "No populated instance yet (M4 gate)", "Sequential pay only -- no pro-rata or shifting-interest structures"]
     },
     {
       "id": "project-finance",
