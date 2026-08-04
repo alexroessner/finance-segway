@@ -6,6 +6,7 @@ debt schedule with cash sweep, and an IRR/MOIC returns waterfall.
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from template_helpers import add_sources_checks
 
 BLUE = Font(name="Arial", size=10, color="0000FF")
 BLACK = Font(name="Arial", size=10, color="000000")
@@ -359,6 +360,22 @@ for j, en in enumerate(entries, start=5):
         ws.cell(row=j, column=i, value="[data table — Excel What-If Analysis]").font = Font(
             name="Arial", size=8, italic=True, color="808080")
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Multi-tranche cash sweep priority (revolver, then TLA, then TLB)", "Standard leveraged-loan credit-agreement absolute-priority cash sweep", "Standard practice", "Real credit agreements can have more nuanced sweep mechanics (e.g. leverage-based step-downs, as modeled in the Private Credit archetype) -- this uses strict seniority order only"),
+        ("Interest computed off beginning-of-period balances only", "Modeling convention used throughout this repository to avoid circular references", "Standard practice", "Matches the Private Credit and Project Finance debt schedules' convention"),
+        ("Management promote / ratchet above an IRR hurdle", "Standard PE deal-level management incentive structure, mechanically identical to a GP catch-up (see the Asset Management archetype's fee waterfall for the fund-side analogue)", "Standard practice", "Single hurdle/promote tier -- no multi-tier ratchet (increasing promote % at higher IRR bands), which some deals use"),
+        ("Exit multiple is scenario-aware (Base/Downside); entry multiple is not", "Modeling choice: entry multiple is a contractual fact of the deal that already happened, exit multiple is the genuine forward uncertainty", "Modeling choice, documented on the Returns tab", "A downside case pairs worse operating performance with multiple compression -- a distressed exit is punished twice, not once on EBITDA alone"),
+    ],
+    checks=[
+        ("Sources = Uses at close", "='Sources & Uses'!C13", "0 (exact)"),
+        ("Total debt ties: revolver+TLA+TLB ending balances = Total debt row (Yr5)", "='Debt Schedule'!H30-('Debt Schedule'!H13+'Debt Schedule'!H20+'Debt Schedule'!H27)", "0 (exact)"),
+        ("Sponsor-only IRR never exceeds blended IRR (promote only transfers value away from the sponsor, never adds to it)", "=IF(OR(NOT(ISNUMBER(Returns!C33)),NOT(ISNUMBER(Returns!C20))),TRUE,Returns!C33<=Returns!C20+0.0000001)", "TRUE"),
+        ("Active debt-schedule assumptions match the Cover scenario selector", '=IF(Cover!$C$11="Downside",\'Debt Schedule\'!M5=\'Debt Schedule\'!L5,\'Debt Schedule\'!M5=\'Debt Schedule\'!K5)', "TRUE"),
+    ],
+)
 
 # ---------------- REFRESH LOG ----------------
 ws = wb.create_sheet("RefreshLog")

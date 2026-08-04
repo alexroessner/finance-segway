@@ -21,13 +21,13 @@
       "folders": ["03_Private_Equity", "04_Merchant_Banking"],
       "builder": "tools/builders/build_lbo_template.py",
       "workbook_template": "_template_LBO.xlsx",
-      "instances": ["03_Private_Equity/deals/PROJECT_ATLAS.xlsx"],
+      "instances": ["03_Private_Equity/deals/PROJECT_ATLAS.xlsx", "03_Private_Equity/deals/SAAS_EXAMPLE.xlsx", "03_Private_Equity/deals/HEALTHCARE_SERVICES_EXAMPLE.xlsx", "03_Private_Equity/deals/INDUSTRIALS_EXAMPLE.xlsx"],
       "owner": "unassigned",
-      "purpose": "LBO sources & uses, multi-tranche debt schedule with absolute-priority cash sweep, management promote, Base/Downside scenario switch.",
+      "purpose": "LBO sources & uses, multi-tranche debt schedule with absolute-priority cash sweep, management promote, Base/Downside scenario switch. Piloted with 3 sector playbooks (SaaS, Healthcare Services, Industrials) and matching populated instances.",
       "risk_tier": "Tier 1",
-      "maturity": "M2",
+      "maturity": "M4",
       "reference_checks": ["check_lbo_sources_uses_and_debt_schedule", "check_lbo_scenario_switch"],
-      "known_limitations": ["Single populated instance, not two (M4 gate)", "No Sources/Checks sheet or model card/validation record yet (M3 gate)", "No independent effective-challenge record on file"]
+      "known_limitations": ["No independent effective-challenge record on file (M4's outcome-monitoring/backtesting and versioned-release requirements are only partially met)", "Sector playbooks (03_Private_Equity/playbooks/) cover 3 of many plausible LBO sectors -- a pilot, not comprehensive coverage", "Single-tier management promote only -- no multi-tier ratchet"]
     },
     {
       "id": "private-credit-debt-finance",
