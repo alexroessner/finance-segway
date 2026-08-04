@@ -679,6 +679,89 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Project Finance: sculpted debt schedule (non-circular) + a Debt Service
+# Reserve Account that prevents PAYMENT default without curing the softer
+# DSCR distribution-lock-up test -- the real distinction between the two
+# covenant triggers, not the same event shown twice.
+# ---------------------------------------------------------------------
+def check_project_finance_dsra():
+    path = os.path.join(REPO_ROOT, "20_Project_Finance", "_template_PROJECT_FINANCE.xlsx")
+    total_cost, debt_pct, constr_months, idc_rate = 500_000_000, 0.70, 24, 0.06
+    revenue, opcost, capex = 80_000_000, -20_000_000, -5_000_000
+    target_dscr, debt_rate = 1.30, 0.06
+    shock_year, shock_pct = 3, -0.30
+
+    def populate(wb):
+        cb = wb["Construction Budget"]
+        cb["C5"], cb["C6"], cb["C7"], cb["C8"] = total_cost, debt_pct, constr_months, idc_rate
+        ocf = wb["Operating Cash Flow"]
+        for i in range(5):
+            col = 3 + i
+            ocf.cell(row=5, column=col, value=revenue)
+            ocf.cell(row=6, column=col, value=opcost)
+            ocf.cell(row=8, column=col, value=capex)
+        dscr = wb["DSCR & Debt Sizing"]
+        dscr["C9"], dscr["C10"] = target_dscr, debt_rate
+
+    wb = with_recalc(path, populate)
+
+    # independent re-derivation of the sculpted schedule
+    debt_drawn = total_cost * debt_pct
+    idc = debt_drawn * idc_rate * (constr_months / 12) / 2
+    debt_at_cod = debt_drawn + idc
+    cfads = revenue + opcost + capex
+    sculpted_ds = cfads / target_dscr
+
+    beg = debt_at_cod
+    schedule = []
+    for _ in range(5):
+        interest = beg * debt_rate
+        principal = sculpted_ds - interest
+        end = beg - principal
+        schedule.append((beg, interest, principal, end))
+        beg = end
+
+    sds = wb["Sculpted Debt Schedule"]
+    ok = True
+    details = []
+    for i, (b, interest, principal, end) in enumerate(schedule):
+        col = 3 + i
+        sheet_end = sds.cell(row=10, column=col).value
+        this_ok = close(sheet_end, end)
+        ok = ok and this_ok
+        details.append(f"Yr{i+1} ending balance: sheet={sheet_end:.0f} ref={end:.0f} {'OK' if this_ok else 'MISMATCH'}")
+
+    # DSRA stress test, independently
+    dsra_months = 6
+    required_dsra = dsra_months / 12 * sculpted_ds
+    stressed_cfads_shocked_yr = cfads * (1 + shock_pct)
+    shortfall = max(sculpted_ds - stressed_cfads_shocked_yr, 0)
+    draw = min(shortfall, required_dsra)
+    paid_in_full_with_dsra = (stressed_cfads_shocked_yr + draw) >= sculpted_ds
+    paid_in_full_without_dsra = stressed_cfads_shocked_yr >= sculpted_ds
+    effective_dscr = (stressed_cfads_shocked_yr + draw) / sculpted_ds
+    locked_up = effective_dscr < target_dscr
+
+    dsra_sheet = wb["DSRA"]
+    shocked_col = 2 + shock_year  # Yr3 -> column E (5)
+    sheet_with = dsra_sheet.cell(row=20, column=shocked_col).value
+    sheet_without = dsra_sheet.cell(row=21, column=shocked_col).value
+    sheet_lockup = dsra_sheet.cell(row=22, column=shocked_col).value
+
+    dsra_ok = (
+        (sheet_with == "PAID IN FULL") == paid_in_full_with_dsra
+        and (sheet_without == "PAID IN FULL") == paid_in_full_without_dsra
+        and (sheet_lockup == "LOCKED UP") == locked_up
+    )
+    ok = ok and dsra_ok
+    details.append(f"Yr3 stress: WITH-DSRA sheet={sheet_with} (ref payable={paid_in_full_with_dsra}), "
+                    f"WITHOUT-DSRA sheet={sheet_without} (ref payable={paid_in_full_without_dsra}), "
+                    f"lock-up sheet={sheet_lockup} (ref locked={locked_up}) {'OK' if dsra_ok else 'MISMATCH'}")
+
+    return "Project Finance: sculpted debt schedule + DSRA payment-default-vs-covenant-lockup distinction", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Microfinance: flat-rate vs. declining-balance effective interest rate --
 # the true-cost-of-credit gap that pricing-transparency regulation exists
 # to surface. Independent check uses a DIFFERENT root-finding approach
@@ -1176,6 +1259,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_project_finance_dsra,
     check_microfinance_flat_vs_declining,
     check_fintech_interchange_durbin,
     check_crypto_perp_funding_basis,

@@ -219,11 +219,11 @@
       "workbook_template": "_template_PROJECT_FINANCE.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Non-recourse project debt sizing.",
+      "purpose": "Non-recourse project debt sizing, sculpted debt repayment, and a Debt Service Reserve Account (DSRA) modeling the real payment-default-vs-distribution-lockup distinction.",
       "risk_tier": "Tier 1",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Debt sizing bug-fixed only, never deepened", "No DSRA mechanics, cash sweep, or construction-to-operation phase transition"]
+      "maturity": "M3",
+      "reference_checks": ["check_project_finance_dsra"],
+      "known_limitations": ["Sculpting assumes a reliable CFADS forecast -- an optimistic forecast under-reserves real repayment capacity", "5-year operating window may not fully retire debt raised against a longer tenor (balloon shown explicitly, not hidden)", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "fixed-income-rates",
