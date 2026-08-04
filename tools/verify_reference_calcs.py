@@ -159,6 +159,56 @@ def check_bond_duration():
 
 
 # ---------------------------------------------------------------------
+# Accrued interest / clean-dirty price: cross-check both day-count
+# conventions against independent Python date arithmetic. 30/360 and
+# Actual/Actual must give DIFFERENT answers for the identical settlement
+# date -- that's the whole point of the convention mattering.
+# ---------------------------------------------------------------------
+def check_accrued_interest():
+    path = os.path.join(REPO_ROOT, "21_Fixed_Income_Rates", "_template_FIXED_INCOME.xlsx")
+    from datetime import date as _date
+
+    def populate(wb, convention):
+        ai = wb["Accrued Interest & Settlement"]
+        ai["C5"] = convention
+
+    wb_360 = with_recalc(path, lambda w: populate(w, "30/360"))
+    wb_act = with_recalc(path, lambda w: populate(w, "Actual/Actual"))
+
+    ai_360 = wb_360["Accrued Interest & Settlement"]
+    ai_act = wb_act["Accrued Interest & Settlement"]
+
+    # Default template dates: last coupon 2026-01-01, next 2026-07-01,
+    # settlement 2026-04-01. 30/360 treats every month as exactly 30 days;
+    # actual counts real calendar days.
+    ref_days_360 = 90
+    ref_period_360 = 180
+    ref_days_act = (_date(2026, 4, 1) - _date(2026, 1, 1)).days
+    ref_period_act = (_date(2026, 7, 1) - _date(2026, 1, 1)).days
+    periodic_coupon = 1000 * 0.05 / 2  # default Bond Pricing inputs
+
+    ref_accrued_360 = periodic_coupon * ref_days_360 / ref_period_360
+    ref_accrued_act = periodic_coupon * ref_days_act / ref_period_act
+
+    sheet_accrued_360 = ai_360["C17"].value
+    sheet_accrued_act = ai_act["C17"].value
+
+    ok = (close(sheet_accrued_360, ref_accrued_360)
+          and close(sheet_accrued_act, ref_accrued_act)
+          and abs(sheet_accrued_360 - sheet_accrued_act) > 0.01)  # conventions must actually differ
+
+    dirty_360 = ai_360["C19"].value
+    clean_360 = ai_360["C18"].value
+    ok = ok and close(dirty_360, clean_360 + sheet_accrued_360)
+
+    detail = (f"30/360: sheet={sheet_accrued_360:.4f} ref={ref_accrued_360:.4f} | "
+              f"Actual/Actual: sheet={sheet_accrued_act:.4f} ref={ref_accrued_act:.4f} | "
+              f"conventions differ: {abs(sheet_accrued_360 - sheet_accrued_act) > 0.01} | "
+              f"dirty=clean+accrued: {close(dirty_360, clean_360 + sheet_accrued_360)}")
+    return "Accrued interest: 30/360 vs Actual/Actual day-count conventions", ok, detail
+
+
+# ---------------------------------------------------------------------
 # LBO: Sources = Uses, and the debt schedule cash-sweep cascade
 # ---------------------------------------------------------------------
 def check_lbo_sources_uses_and_debt_schedule():
@@ -546,6 +596,7 @@ def check_base_archetype_integration():
 CHECKS = [
     check_black_scholes,
     check_bond_duration,
+    check_accrued_interest,
     check_lbo_sources_uses_and_debt_schedule,
     check_lbo_scenario_switch,
     check_american_option_binomial,

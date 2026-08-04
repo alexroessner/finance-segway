@@ -1,4 +1,5 @@
 import openpyxl
+from datetime import date
 from template_helpers import *
 
 wb = openpyxl.Workbook()
@@ -126,6 +127,58 @@ for i, s in enumerate(shocks, start=3):
     ws.cell(row=9, column=i).number_format = PCT2
     ws.cell(row=9, column=i).border = BORDER
     ws.cell(row=9, column=i).fill = YELLOW_FILL
+ws.sheet_view.showGridLines = False
+
+# ---------------- ACCRUED INTEREST & CLEAN/DIRTY PRICE ----------------
+# Bond Pricing above computes a "clean" price valued exactly on a coupon
+# date — the theoretical PV. In practice a bond trades and settles between
+# coupon dates, and the buyer owes the seller the coupon that's accrued
+# since the last payment: the price you SEE quoted (clean) is not the cash
+# that actually changes hands at settlement (dirty/invoice price = clean +
+# accrued). Day-count convention changes the accrued-interest number even
+# for the identical settlement date — 30/360 (standard for most corporate
+# bonds) and Actual/Actual (standard for Treasuries) do not agree.
+ws = wb.create_sheet("Accrued Interest & Settlement")
+set_col_widths(ws, [4, 34, 16, 40])
+ws["B2"] = "Accrued Interest & Clean/Dirty Price"; ws["B2"].font = TITLE
+ws["B4"] = "Inputs"; ws["B4"].font = BOLD; ws["B4"].fill = GRAY_FILL
+ws["B5"] = "Day-count convention (30/360 or Actual/Actual)"
+ws["C5"] = "30/360"; ws["C5"].font = BLUE; ws["C5"].fill = YELLOW_FILL; ws["C5"].border = BORDER
+ws["B6"] = "Last coupon date"
+ws["C6"] = date(2026, 1, 1); ws["C6"].font = BLUE; ws["C6"].fill = YELLOW_FILL
+ws["C6"].number_format = "yyyy-mm-dd"; ws["C6"].border = BORDER
+ws["B7"] = "Next coupon date"
+ws["C7"] = date(2026, 7, 1); ws["C7"].font = BLUE; ws["C7"].fill = YELLOW_FILL
+ws["C7"].number_format = "yyyy-mm-dd"; ws["C7"].border = BORDER
+ws["B8"] = "Settlement date"
+ws["C8"] = date(2026, 4, 1); ws["C8"].font = BLUE; ws["C8"].fill = YELLOW_FILL
+ws["C8"].number_format = "yyyy-mm-dd"; ws["C8"].border = BORDER
+
+ws["B10"] = "Day Count"; ws["B10"].font = BOLD; ws["B10"].fill = GRAY_FILL
+ws["B11"] = "Days accrued (last coupon -> settlement)"
+ws["C11"] = '=IF($C$5="30/360",DAYS360(C6,C8),C8-C6)'
+ws["C11"].number_format = "0"; ws["C11"].border = BORDER
+ws["B12"] = "Days in full coupon period (last coupon -> next coupon)"
+ws["C12"] = '=IF($C$5="30/360",DAYS360(C6,C7),C7-C6)'
+ws["C12"].number_format = "0"; ws["C12"].border = BORDER
+ws["B13"] = "Accrual fraction of the period"
+ws["C13"] = "=IFERROR(C11/C12,\"-\")"; ws["C13"].number_format = "0.0000"; ws["C13"].border = BORDER
+
+ws["B15"] = "Accrued Interest & Invoice Price"; ws["B15"].font = BOLD; ws["B15"].fill = GRAY_FILL
+ws["B16"] = "Periodic coupon (from Bond Pricing)"
+ws["C16"] = "='Bond Pricing'!C5*'Bond Pricing'!C6/'Bond Pricing'!C7"
+ws["C16"].font = GREEN; ws["C16"].number_format = CUR2; ws["C16"].border = BORDER
+ws["B17"] = "Accrued interest"
+ws["C17"] = "=IFERROR(C16*C13,\"-\")"; ws["C17"].font = BOLD; ws["C17"].number_format = CUR2
+ws["C17"].border = BORDER
+ws["B18"] = "Clean price (from Bond Pricing — quoted market price)"
+ws["C18"] = "='Bond Pricing'!C11"; ws["C18"].font = GREEN; ws["C18"].number_format = CUR2
+ws["C18"].border = BORDER
+ws["B19"] = "Dirty / invoice price (clean + accrued — what the buyer actually pays)"
+ws["C19"] = "=IFERROR(C18+C17,\"-\")"; ws["C19"].font = BOLD; ws["C19"].number_format = CUR2
+ws["C19"].fill = YELLOW_FILL; ws["C19"].border = BORDER
+ws["D19"] = "This is the number that actually settles — quoting only the clean price is a market convention, not the real cash flow"
+ws["D19"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
 
 add_refresh_log(wb)
