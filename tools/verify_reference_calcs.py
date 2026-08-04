@@ -727,6 +727,66 @@ def check_vc_participating_preferred_cap():
 
 
 # ---------------------------------------------------------------------
+# Risk Management: historical VaR (Excel PERCENTILE/AVERAGEIF) vs.
+# parametric VaR -- independently reproduces Excel's exact linear-
+# interpolation percentile method, and confirms the fat-tail P&L sample
+# makes historical VaR exceed parametric, the real-world direction.
+# ---------------------------------------------------------------------
+def check_risk_historical_vs_parametric_var():
+    path = os.path.join(REPO_ROOT, "09_Risk_Management", "_template_RISK.xlsx")
+    import random
+    random.seed(11)
+    pnl = []
+    for _ in range(100):
+        v = random.gauss(0, 150_000)
+        if random.random() < 0.05:
+            v -= 400_000
+        pnl.append(v)
+    portfolio_value, daily_vol, confidence, holding_days = 10_000_000, 0.015, 0.95, 1
+
+    def populate(wb):
+        var = wb["VaR"]
+        var["C5"], var["C6"], var["C7"], var["C8"] = portfolio_value, daily_vol, confidence, holding_days
+        for i, v in enumerate(pnl):
+            var.cell(row=23 + i, column=5, value=v)
+
+    wb = with_recalc(path, populate)
+    var = wb["VaR"]
+
+    def excel_percentile(data, p):
+        data = sorted(data)
+        n = len(data)
+        k = (n - 1) * p
+        f = int(k)
+        c = k - f
+        return data[f] + c * (data[f + 1] - data[f]) if f + 1 < n else data[f]
+
+    pctile_val = excel_percentile(pnl, 1 - confidence)
+    ref_hist_var = -pctile_val
+    losses_beyond = [x for x in pnl if x <= pctile_val]
+    ref_hist_cvar = -(sum(losses_beyond) / len(losses_beyond))
+    z = -abs(statistics.NormalDist().inv_cdf(1 - confidence))  # z at (1-confidence) tail, negative
+    ref_param_var = portfolio_value * daily_vol * abs(z)
+
+    ok = True
+    details = []
+    for label, sheet_val, ref_val in [
+        ("parametric VaR", var["C12"].value, ref_param_var),
+        ("historical VaR", var["C21"].value, ref_hist_var),
+        ("historical CVaR", var["C22"].value, ref_hist_cvar),
+    ]:
+        this_ok = close(sheet_val, ref_val, tol=1e-6)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val:.2f} ref={ref_val:.2f} {'OK' if this_ok else 'MISMATCH'}")
+
+    fat_tail_direction = ref_hist_var > ref_param_var
+    ok = ok and fat_tail_direction
+    details.append(f"fat-tail sample makes historical VaR exceed parametric: {'OK' if fat_tail_direction else 'FAIL'}")
+
+    return "Risk Management: historical vs. parametric VaR (exact PERCENTILE match)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Trade Finance: early-payment discount implied APR (the classic
 # "2/10 net 30" corporate-finance factoid) + reverse factoring priced
 # off the buyer's stronger credit.
@@ -1606,6 +1666,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_risk_historical_vs_parametric_var,
     check_base_dcf_comps_triangulation,
     check_vc_participating_preferred_cap,
     check_trade_finance_dynamic_discounting,

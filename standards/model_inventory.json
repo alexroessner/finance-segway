@@ -79,11 +79,11 @@
       "workbook_template": "_template_RISK.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Correlation-weighted portfolio VaR with Euler-theorem component VaR.",
+      "purpose": "Correlation-weighted portfolio VaR with Euler-theorem component VaR, plus historical VaR/CVaR cross-checked against the parametric method.",
       "risk_tier": "Tier 1",
-      "maturity": "M2",
-      "reference_checks": ["check_portfolio_var"],
-      "known_limitations": ["No Sources/Checks sheet or model card/validation record yet (M3 gate)", "Parametric VaR only -- no historical or Monte Carlo cross-check"]
+      "maturity": "M3",
+      "reference_checks": ["check_portfolio_var", "check_risk_historical_vs_parametric_var"],
+      "known_limitations": ["No Monte Carlo VaR (only parametric + historical)", "Stress scenario shocks are illustrative placeholders, not calibrated to actual portfolio betas", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "trade-finance",

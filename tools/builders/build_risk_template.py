@@ -67,6 +67,20 @@ for r2 in range(23, 123):
     c.font = BLUE
     c.number_format = CUR
     c.border = BORDER
+
+ws["B25"] = "Parametric vs. Historical: Method Comparison"; ws["B25"].font = BOLD; ws["B25"].fill = GRAY_FILL
+ws["B26"] = "Parametric 1-day VaR"
+ws["C26"] = "=C12"; ws["C26"].font = GREEN; ws["C26"].number_format = CUR; ws["C26"].border = BORDER
+ws["B27"] = "Historical 1-day VaR"
+ws["C27"] = "=C21"; ws["C27"].font = GREEN; ws["C27"].number_format = CUR; ws["C27"].border = BORDER
+ws["B28"] = "Ratio (Historical / Parametric)"
+ws["C28"] = "=IFERROR(C27/C26,\"-\")"; ws["C28"].font = BOLD; ws["C28"].number_format = '0.00x'
+ws["C28"].fill = YELLOW_FILL; ws["C28"].border = BORDER
+ws["D28"] = ("Parametric VaR assumes normally-distributed returns; if the actual P&L history has fat tails or "
+             "negative skew (crashes bigger/more frequent than a normal distribution predicts), historical VaR "
+             "comes in higher and this ratio exceeds 1x -- a real, checkable signal that the normality assumption "
+             "is understating tail risk, not just a rounding difference between two methods that should agree.")
+ws["D28"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
 
 # ---------------- STRESS SCENARIOS ----------------
@@ -224,6 +238,22 @@ ws["C30"].border = BORDER
 ws["D30"] = "Euler's homogeneity theorem: for a variance-based risk measure, marginal contributions always sum exactly to the total -- a built-in formula check, not a coincidence"
 ws["D30"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Parametric (variance-covariance) VaR, Z x sigma x portfolio value", "Standard RiskMetrics-style parametric VaR", "Standard practice", "Assumes normally-distributed returns -- see the Method Comparison rows for a direct check of how much that assumption understates tail risk in the actual P&L history"),
+        ("Historical VaR via PERCENTILE of trailing daily P&L", "Standard non-parametric VaR methodology, makes no distributional assumption", "Standard practice", "Requires a real, sufficiently long P&L history (100 obs minimum recommended) -- garbage in, garbage out more than the parametric method"),
+        ("Analytic Expected Shortfall under normality, sigma x phi(Z)/(1-confidence)", "Standard closed-form ES formula under the normal-distribution assumption", "Standard practice", "Same normality caveat as parametric VaR"),
+        ("Portfolio VaR variance decomposition + Euler component VaR", "Standard multi-asset correlation-weighted VaR aggregation (modern portfolio theory applied to risk)", "Standard practice", "3-position example; generalizes to N positions but the explicit-sum formula would need to scale accordingly"),
+    ],
+    checks=[
+        ("Component VaRs sum exactly to portfolio VaR (Euler's homogeneity theorem)", "='Portfolio VaR (Multi-Asset)'!C30-'Portfolio VaR (Multi-Asset)'!C22", "0 (exact) -- not an approximation, a mathematical identity for a variance-based risk measure"),
+        ("Diversification benefit is never negative (undiversified VaR >= portfolio VaR)", "=IF('Portfolio VaR (Multi-Asset)'!C24>=-0.01,TRUE,FALSE)", "TRUE -- correlations below 1 can only reduce risk, never increase it, versus the undiversified sum"),
+        ("Expected Shortfall is never less than VaR at the same confidence level", "=IF(OR(NOT(ISNUMBER(VaR!C15)),NOT(ISNUMBER(VaR!C12))),TRUE,VaR!C15>=VaR!C12-0.01)", "TRUE -- ES is the average loss GIVEN VaR is breached, so it can only be worse"),
+        ("Historical VaR is positive whenever the P&L sample actually has losses", "=IF(COUNTIF(VaR!E23:E122,\"<0\")=0,TRUE,VaR!C21>0)", "TRUE"),
+    ],
+)
 
 add_refresh_log(wb)
 out_path = "RISK_template.xlsx"
