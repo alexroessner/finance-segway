@@ -60,6 +60,30 @@ ws["B20"] = "Annual interest expense ($)"
 ws["C20"] = "=C6*C19"; ws["C20"].number_format = CUR; ws["C20"].border = BORDER
 ws["B21"] = "Total debt ($, = drawn amount)"
 ws["C21"] = "=C6"; ws["C21"].font = GREEN; ws["C21"].number_format = CUR; ws["C21"].border = BORDER
+
+ws["B23"] = "Excess Cash Flow (ECF) Sweep Step-Down Grid"; ws["B23"].font = BOLD; ws["B23"].fill = GRAY_FILL
+ws["D23"] = "Standard leveraged-loan credit-agreement provision: the sweep % of excess cash flow ratchets down as leverage falls, so a borrower keeps more cash once it's delevered."
+ws["D23"].font = ITALIC_GRAY
+for i, h in enumerate(["", "Tier", "Leverage >", "Sweep % of ECF"], start=1):
+    ws.cell(row=24, column=i, value=h)
+style_header_row(ws, 24, 3, start_col=2)
+ecf_grid = [
+    ("Tier 1", 4.0, 0.75),
+    ("Tier 2", 3.0, 0.50),
+    ("Tier 3", 2.0, 0.25),
+]
+r = 25
+for tier, threshold, sweep_pct in ecf_grid:
+    ws.cell(row=r, column=2, value=tier).font = BLACK
+    ct = ws.cell(row=r, column=3, value=threshold); ct.font = BLUE; ct.fill = YELLOW_FILL
+    ct.number_format = MULT; ct.border = BORDER
+    cs = ws.cell(row=r, column=4, value=sweep_pct); cs.font = BLUE; cs.fill = YELLOW_FILL
+    cs.number_format = PCT; cs.border = BORDER
+    r += 1
+ws["B28"] = "Below Tier 3 threshold"
+ws["C28"].border = BORDER
+c = ws.cell(row=28, column=4, value=0.00); c.font = BLUE; c.fill = YELLOW_FILL
+c.number_format = PCT; c.border = BORDER
 ws.sheet_view.showGridLines = False
 
 # ---------------- COVENANTS ----------------
@@ -86,7 +110,7 @@ ws["F6"].font = ITALIC_GRAY
 
 ws["B7"] = "Min DSCR (CFADS / Debt Service)"
 ws["C7"] = 1.2; ws["C7"].font = BLUE; ws["C7"].fill = YELLOW_FILL; ws["C7"].number_format = MULT
-ws["D7"] = ("=IFERROR(Assumptions!C15/(Assumptions!C6*Assumptions!C9+Assumptions!C20),\"-\")")
+ws["D7"] = ("=IFERROR(Assumptions!C15/(Assumptions!C6*Assumptions!C11+Assumptions!C20),\"-\")")
 ws["D7"].font = GREEN; ws["D7"].number_format = MULT
 ws["E7"] = "=IFERROR(D7-C7,\"-\")"; ws["E7"].number_format = MULT
 ws["F7"] = "Debt service = mandatory amort + interest"
@@ -107,45 +131,66 @@ ws.sheet_view.showGridLines = False
 
 # ---------------- DEBT SCHEDULE ----------------
 ws = wb.create_sheet("Debt Schedule")
-set_col_widths(ws, [4, 26, 12, 12, 12, 12, 12, 12])
+set_col_widths(ws, [4, 34, 12, 12, 12, 12, 12, 12])
 ws["B2"] = "Debt Schedule"; ws["B2"].font = TITLE
+ws["B3"] = "Interest and the ECF sweep tier both key off the BEGINNING-of-period balance — never the period's own ending balance — so nothing here is circular."
+ws["B3"].font = ITALIC_GRAY
 for i, h in enumerate(["", "", "Yr0", "Yr1", "Yr2", "Yr3", "Yr4", "Yr5"], start=1):
-    ws.cell(row=4, column=i, value=h)
-style_header_row(ws, 4, 6, start_col=3)
+    ws.cell(row=5, column=i, value=h)
+style_header_row(ws, 5, 6, start_col=3)
 
-ws["B5"] = "Beginning balance"; ws["B5"].font = BLACK
-ws["C5"] = "=Assumptions!C6"; ws["C5"].font = GREEN; ws["C5"].number_format = CUR
+ws["B6"] = "Beginning balance"; ws["B6"].font = BLACK
+ws["C6"] = "=Assumptions!C6"; ws["C6"].font = GREEN; ws["C6"].number_format = CUR
 for col in range(4, 9):
     letter = get_column_letter(col - 1)
-    ws.cell(row=5, column=col, value=f"={letter}8").number_format = CUR
+    ws.cell(row=6, column=col, value=f"={letter}12").number_format = CUR
 
-ws["B6"] = "Mandatory amortization"; ws["B6"].font = BLACK
+ws["B7"] = "Mandatory amortization"; ws["B7"].font = BLACK
 for col in range(3, 9):
-    ws.cell(row=6, column=col, value="=Assumptions!$C$6*Assumptions!$C$9").number_format = CUR
+    ws.cell(row=7, column=col, value="=Assumptions!$C$6*Assumptions!$C$11").number_format = CUR
 
-ws["B7"] = "Cash sweep (excess CFADS, if any)"; ws["B7"].font = BLACK
-for col in range(3, 9):
-    ws.cell(row=7, column=col, value=0).number_format = CUR
-
-ws["B8"] = "Ending balance"; ws["B8"].font = BOLD
+ws["B8"] = "Beginning-of-period leverage (for ECF tier)"; ws["B8"].font = BLACK
 for col in range(3, 9):
     letter = get_column_letter(col)
-    ws.cell(row=8, column=col, value=f"={letter}5-{letter}6-{letter}7").number_format = CUR
+    ws.cell(row=8, column=col,
+            value=f'=IFERROR({letter}6/Assumptions!$C$14,"-")').number_format = MULT
 
-ws["B9"] = "Interest expense (all-in rate x avg balance)"; ws["B9"].font = BLACK
+ws["B9"] = "ECF sweep % (step-down grid)"; ws["B9"].font = BLACK
 for col in range(3, 9):
     letter = get_column_letter(col)
-    ws.cell(row=9, column=col,
-            value=f"=AVERAGE({letter}5,{letter}8)*Assumptions!$C$19").number_format = CUR
+    lev = f"{letter}8"
+    formula = (f'=IF(NOT(ISNUMBER({lev})),0,'
+               f'IF({lev}>Assumptions!$C$25,Assumptions!$D$25,'
+               f'IF({lev}>Assumptions!$C$26,Assumptions!$D$26,'
+               f'IF({lev}>Assumptions!$C$27,Assumptions!$D$27,Assumptions!$D$28))))')
+    ws.cell(row=9, column=col, value=formula).number_format = PCT
 
-ws["B11"] = "Leverage (ending debt / EBITDA)"; ws["B11"].font = BOLD
+ws["B10"] = "Interest expense (all-in rate x beginning balance)"; ws["B10"].font = BLACK
+for col in range(3, 9):
+    letter = get_column_letter(col)
+    ws.cell(row=10, column=col,
+            value=f"={letter}6*Assumptions!$C$19").number_format = CUR
+
+ws["B11"] = "Cash sweep (Excess Cash Flow: CFADS less scheduled debt service, x tier %)"
+ws["B11"].font = BLACK
 for col in range(3, 9):
     letter = get_column_letter(col)
     ws.cell(row=11, column=col,
-            value=f'=IFERROR({letter}8/Assumptions!$C$14,"-")').number_format = MULT
-    ws.cell(row=11, column=col).fill = YELLOW_FILL
+            value=f"=MAX(Assumptions!$C$15-{letter}10-{letter}7,0)*{letter}9").number_format = CUR
 
-for row in (5, 6, 7, 8, 9, 11):
+ws["B12"] = "Ending balance"; ws["B12"].font = BOLD
+for col in range(3, 9):
+    letter = get_column_letter(col)
+    ws.cell(row=12, column=col, value=f"={letter}6-{letter}7-{letter}11").number_format = CUR
+
+ws["B14"] = "Leverage (ending debt / EBITDA)"; ws["B14"].font = BOLD
+for col in range(3, 9):
+    letter = get_column_letter(col)
+    ws.cell(row=14, column=col,
+            value=f'=IFERROR({letter}12/Assumptions!$C$14,"-")').number_format = MULT
+    ws.cell(row=14, column=col).fill = YELLOW_FILL
+
+for row in (6, 7, 8, 9, 10, 11, 12, 14):
     for c in range(3, 9):
         ws.cell(row=row, column=c).border = BORDER
 ws.sheet_view.showGridLines = False
@@ -168,6 +213,22 @@ ws["D8"].font = ITALIC_GRAY
 for r2 in (4, 5, 6, 8):
     ws.cell(row=r2, column=3).border = BORDER
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("ECF sweep step-down grid (75%/50%/25%/0% by leverage tier)", "Standard leveraged-loan credit-agreement provision", "Standard practice", "Illustrative tier thresholds/percentages — not any specific credit agreement's actual terms"),
+        ("Covenant thresholds (5.0x leverage, 2.5x interest coverage, 1.2x DSCR)", "[fill in — actual credit agreement]", "[fill in]", "Placeholder defaults; replace with the specific facility's real covenant levels before use"),
+        ("Approximate YTM: (coupon$+(100-price)/n)/((100+price)/2)", "Standard bond-math approximation for yield including OID", "Standard practice", "Approximation, not an exact IRR solve — collapses to the coupon rate exactly at par (Price=100), the built-in sanity check"),
+        ("Interest computed off beginning-of-period balance only (not average)", "Modeling convention used throughout this repo to avoid circular references between interest and the ECF sweep", "Standard practice", "Slightly understates true average-balance interest expense when the balance amortizes or sweeps within the period"),
+    ],
+    checks=[
+        ("Ending balance ties: beginning - amort - sweep = ending (Yr5)", "='Debt Schedule'!H12-('Debt Schedule'!H6-'Debt Schedule'!H7-'Debt Schedule'!H11)", "0 (exact)"),
+        ("Roll-forward ties: next period's beginning = this period's ending (Yr0->Yr1)", "='Debt Schedule'!D6-'Debt Schedule'!C12", "0 (exact)"),
+        ("Total debt (Assumptions) ties to Debt Schedule Yr0 beginning balance", "=Assumptions!C21-'Debt Schedule'!C6", "0 (exact)"),
+        ("ECF sweep never negative (MAX floor holds across the full schedule)", "=IF(MIN('Debt Schedule'!C11:H11)>=0,TRUE,FALSE)", "TRUE"),
+    ],
+)
 
 add_refresh_log(wb)
 out_path = "CREDIT_template.xlsx"

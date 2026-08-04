@@ -679,6 +679,80 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Private Credit: Excess Cash Flow sweep with a leverage-based step-down
+# grid, non-circular (interest and the sweep tier both key off the
+# BEGINNING-of-period balance) — plus the mandatory-amortization formula
+# fix (it was reading the OID cell instead of the amort-% cell).
+# ---------------------------------------------------------------------
+def check_credit_ecf_sweep_stepdown():
+    path = os.path.join(REPO_ROOT, "05_Private_Credit", "_template_CREDIT.xlsx")
+    drawn, base_rate, spread, amort_pct = 100_000_000, 0.05, 0.045, 0.01
+    ebitda, cfads = 25_000_000, 20_000_000
+    all_in_rate = base_rate + spread
+    tiers = [(4.0, 0.75), (3.0, 0.50), (2.0, 0.25)]  # (leverage >, sweep %)
+    below_tier_sweep = 0.00
+
+    def populate(wb):
+        a = wb["Assumptions"]
+        a["C6"], a["C7"], a["C8"], a["C11"] = drawn, base_rate, spread, amort_pct
+        a["C14"], a["C15"] = ebitda, cfads
+
+    wb = with_recalc(path, populate)
+    ds = wb["Debt Schedule"]
+
+    def sweep_pct(leverage):
+        for threshold, pct in tiers:
+            if leverage > threshold:
+                return pct
+        return below_tier_sweep
+
+    ok = True
+    details = []
+    beg_bal = float(drawn)
+    for i, col in enumerate(range(3, 9)):  # C..H = Yr0..Yr5
+        letter = get_column_letter(col)
+        amort = drawn * amort_pct
+        beg_lev = beg_bal / ebitda
+        pct = sweep_pct(beg_lev)
+        interest = beg_bal * all_in_rate
+        sweep = max(cfads - interest - amort, 0) * pct
+        end_bal = beg_bal - amort - sweep
+
+        sheet_beg = ds.cell(row=6, column=col).value
+        sheet_sweep_pct = ds.cell(row=9, column=col).value
+        sheet_interest = ds.cell(row=10, column=col).value
+        sheet_sweep = ds.cell(row=11, column=col).value
+        sheet_end = ds.cell(row=12, column=col).value
+
+        this_ok = (close(sheet_beg, beg_bal) and close(sheet_sweep_pct, pct, tol=1e-6)
+                   and close(sheet_interest, interest) and close(sheet_sweep, sweep)
+                   and close(sheet_end, end_bal))
+        ok = ok and this_ok
+        details.append(f"{letter}(Yr{i}): lev={beg_lev:.3f} tier={pct:.0%} sweep=sheet:{sheet_sweep:.0f}/ref:{sweep:.0f} "
+                        f"{'OK' if this_ok else 'MISMATCH'}")
+        beg_bal = end_bal
+
+    # the tier must actually change over the schedule as leverage falls —
+    # otherwise the "step-down" is decorative, not mechanical
+    sweep_pcts_seen = {round(sweep_pct(drawn / ebitda), 4)}
+    beg_bal2 = float(drawn)
+    for _ in range(6):
+        amort = drawn * amort_pct
+        lev = beg_bal2 / ebitda
+        pct = sweep_pct(lev)
+        sweep_pcts_seen.add(round(pct, 4))
+        interest = beg_bal2 * all_in_rate
+        sweep = max(cfads - interest - amort, 0) * pct
+        beg_bal2 = beg_bal2 - amort - sweep
+    steps_down = len(sweep_pcts_seen) > 1
+    ok = ok and steps_down
+    details.append(f"tiers actually visited across the schedule: {sorted(sweep_pcts_seen, reverse=True)} "
+                    f"({'steps down as leverage falls' if steps_down else 'FLAT — grid not mechanically wired'})")
+
+    return "Private Credit: ECF sweep step-down grid (non-circular, beginning-of-period)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Public Finance: forward-looking Additional Bonds Test (proposed new
 # issuance's level debt service via PMT, pro-forma historical test, and a
 # 5-year projected test under Base/Stress revenue growth scenarios).
@@ -849,6 +923,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_credit_ecf_sweep_stepdown,
     check_public_finance_additional_bonds_test,
     check_cover_tab_field_alignment,
     check_vc_waterfall_conservation,

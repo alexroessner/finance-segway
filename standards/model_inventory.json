@@ -37,11 +37,11 @@
       "workbook_template": "_template_CREDIT.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Direct-lending credit analysis: leverage, coverage, covenant headroom.",
+      "purpose": "Direct-lending credit analysis: leverage, coverage, covenant headroom, Excess Cash Flow sweep with a leverage-based step-down grid.",
       "risk_tier": "Tier 1",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Initial build only, never deepened past M1", "No independent-oracle reference check registered", "No scenario/sensitivity analysis"]
+      "maturity": "M3",
+      "reference_checks": ["check_credit_ecf_sweep_stepdown"],
+      "known_limitations": ["Single tranche only -- no multi-tranche (first lien/second lien/unitranche) cascade", "ECF sweep tier thresholds/percentages are illustrative defaults, not any specific credit agreement's actual terms", "No PIK-toggle or covenant-cure mechanics", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "public-finance",
