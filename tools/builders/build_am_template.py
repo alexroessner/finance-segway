@@ -72,22 +72,97 @@ ws["B14"] = "1. Return of capital"
 ws["C14"] = "=MIN(C10,C11)"; ws["C14"].number_format = CUR
 ws["B15"] = "2. Preferred return (hurdle) to LPs"
 ws["C15"] = "=MIN(MAX(C10-C14,0),C11*C7)"; ws["C15"].number_format = CUR
-ws["B16"] = "3. GP catch-up"
-ws["C16"] = "=MIN(MAX(C10-C14-C15,0),C15*C8/(1-C8))"; ws["C16"].number_format = CUR
-ws["B17"] = "4. Remaining profit split (LP/GP per carry%)"
-ws["C17"] = "=MAX(C10-C14-C15-C16,0)"; ws["C17"].number_format = CUR
-ws["B18"] = "   GP share of remainder"
-ws["C18"] = "=C17*C8"; ws["C18"].number_format = CUR
-ws["B19"] = "   LP share of remainder"
-ws["C19"] = "=C17*(1-C8)"; ws["C19"].number_format = CUR
-ws["B21"] = "Total GP take (carry + catch-up)"
-ws["C21"] = "=C16+C18"; ws["C21"].font = BOLD; ws["C21"].number_format = CUR
-ws["B22"] = "Total LP take"
-ws["C22"] = "=C14+C15+C19"; ws["C22"].font = BOLD; ws["C22"].number_format = CUR
-ws["B23"] = "Annual management fee (separate from carry)"
-ws["C23"] = "=C5*C6"; ws["C23"].number_format = CUR
-for r2 in list(range(14, 20)) + [21, 22, 23]:
+ws["B16"] = "3. GP catch-up tranche (total, before GP/LP split)"
+ws["C16"] = '=IF(C9<=C8,0,MIN(MAX(C10-C14-C15,0),C15*C8/(C9-C8)))'
+ws["C16"].number_format = CUR
+ws["D16"] = "General catch-up formula for an arbitrary catch-up rate C9 (not hardcoded to 100%): tranche size = pref x carry% / (catch-up% - carry%). At C9=100% this collapses to the standard pref x carry%/(1-carry%) formula."
+ws["D16"].font = ITALIC_GRAY
+ws["B17"] = "   GP share of catch-up tranche (x catch-up %)"
+ws["C17"] = "=C16*C9"; ws["C17"].number_format = CUR
+ws["B18"] = "   LP share of catch-up tranche (x (1 - catch-up %))"
+ws["C18"] = "=C16*(1-C9)"; ws["C18"].number_format = CUR
+ws["B19"] = "4. Remaining profit split (LP/GP per carry%)"
+ws["C19"] = "=MAX(C10-C14-C15-C16,0)"; ws["C19"].number_format = CUR
+ws["B20"] = "   GP share of remainder"
+ws["C20"] = "=C19*C8"; ws["C20"].number_format = CUR
+ws["B21"] = "   LP share of remainder"
+ws["C21"] = "=C19*(1-C8)"; ws["C21"].number_format = CUR
+ws["B23"] = "Total GP take (catch-up + carry)"
+ws["C23"] = "=C17+C20"; ws["C23"].font = BOLD; ws["C23"].number_format = CUR
+ws["B24"] = "Total LP take"
+ws["C24"] = "=C14+C15+C18+C21"; ws["C24"].font = BOLD; ws["C24"].number_format = CUR
+ws["B25"] = "Annual management fee (separate from carry)"
+ws["C25"] = "=C5*C6"; ws["C25"].number_format = CUR
+ws["B26"] = "GP effective carry % of total profit (sanity check — should trend to C8 as profit grows)"
+ws["C26"] = "=IFERROR(C23/(C10-C14),\"-\")"; ws["C26"].number_format = PCT2
+for r2 in list(range(14, 22)) + [23, 24, 25, 26]:
     ws.cell(row=r2, column=3).border = BORDER
+ws.sheet_view.showGridLines = False
+
+# ---------------- GP CARRY & CLAWBACK ----------------
+ws = wb.create_sheet("GP Carry & Clawback")
+set_col_widths(ws, [4, 44, 16, 16, 16, 16])
+ws["B2"] = "GP Carry & Clawback — Whole-Fund (European) Waterfall"; ws["B2"].font = TITLE
+ws["B3"] = ("Re-runs the SAME waterfall as the Fee Waterfall tab, but cumulatively through each period rather than "
+            "once. That's what a whole-fund/European waterfall actually is: carry earned to date is always a "
+            "function of CUMULATIVE fund performance, so a later markdown can make previously-paid carry excessive "
+            "-- a clawback obligation -- which a single-period calc can never show.")
+ws["B3"].font = ITALIC_GRAY
+
+for i, h in enumerate(["", "", "Period 0", "Period 1", "Period 2", "Period 3"], start=1):
+    ws.cell(row=5, column=i, value=h)
+style_header_row(ws, 5, 4, start_col=3)
+
+periods = ["C", "D", "E", "F"]
+ws["B6"] = "Cumulative capital contributed"
+ws["B7"] = "Cumulative net gains (gains less fees)"
+ws["B8"] = "Cumulative distributable value (capital + net gains)"
+for L in periods:
+    ws[f"{L}6"] = f"=SUM('Fund NAV'!$C$6:{L}6)"
+    ws[f"{L}7"] = f"=SUM('Fund NAV'!$C$7:{L}7)-SUM('Fund NAV'!$C$8:{L}8)"
+    ws[f"{L}8"] = f"={L}6+{L}7"
+    for row in (6, 7, 8):
+        ws[f"{L}{row}"].number_format = CUR
+        ws[f"{L}{row}"].border = BORDER
+
+ws["B10"] = "Cumulative waterfall (hurdle/carry/catch-up % from Fee Waterfall tab)"
+ws["B10"].font = BOLD; ws["B10"].fill = GRAY_FILL
+ws["B11"] = "Return of capital (cumulative)"
+ws["B12"] = "Preferred return (cumulative)"
+ws["B13"] = "GP catch-up tranche (cumulative)"
+ws["B14"] = "  GP share of catch-up"
+ws["B15"] = "Remainder above catch-up (cumulative)"
+ws["B16"] = "  GP share of remainder"
+ws["B17"] = "Cumulative GP carry earned through this period"
+ws["B17"].font = BOLD
+for L in periods:
+    ws[f"{L}11"] = f"=MIN({L}8,{L}6)"
+    ws[f"{L}12"] = f"=MIN(MAX({L}8-{L}11,0),{L}6*'Fee Waterfall'!$C$7)"
+    ws[f"{L}13"] = (f"=IF('Fee Waterfall'!$C$9<='Fee Waterfall'!$C$8,0,"
+                     f"MIN(MAX({L}8-{L}11-{L}12,0),{L}12*'Fee Waterfall'!$C$8/('Fee Waterfall'!$C$9-'Fee Waterfall'!$C$8)))")
+    ws[f"{L}14"] = f"={L}13*'Fee Waterfall'!$C$9"
+    ws[f"{L}15"] = f"=MAX({L}8-{L}11-{L}12-{L}13,0)"
+    ws[f"{L}16"] = f"={L}15*'Fee Waterfall'!$C$8"
+    ws[f"{L}17"] = f"={L}14+{L}16"
+    for row in (11, 12, 13, 14, 15, 16, 17):
+        ws[f"{L}{row}"].number_format = CUR
+        ws[f"{L}{row}"].border = BORDER
+    ws[f"{L}17"].font = BOLD
+
+ws["B19"] = "Incremental GP carry this period"; ws["B19"].font = BOLD
+ws["B20"] = "Running total carry paid to GP"
+ws["B21"] = "Clawback status"
+for i, L in enumerate(periods):
+    if i == 0:
+        ws[f"{L}19"] = f"={L}17"
+    else:
+        prior = periods[i - 1]
+        ws[f"{L}19"] = f"={L}17-{prior}17"
+    ws[f"{L}20"] = f"=SUM($C$19:{L}19)"
+    ws[f"{L}21"] = f'=IF({L}19<0,"CLAWBACK — GP owes $"&TEXT(-{L}19,"#,##0")&" back to LPs","-")'
+    ws[f"{L}19"].number_format = CUR; ws[f"{L}19"].font = BOLD; ws[f"{L}19"].border = BORDER
+    ws[f"{L}20"].number_format = CUR; ws[f"{L}20"].border = BORDER
+    ws[f"{L}21"].border = BORDER
 ws.sheet_view.showGridLines = False
 
 # ---------------- PERFORMANCE ATTRIBUTION ----------------
@@ -161,6 +236,22 @@ ws["D19"].font = ITALIC_GRAY
 for r2 in (13, 14, 15, 16, 17, 18, 19):
     ws.cell(row=r2, column=3).border = BORDER
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Waterfall structure (ROC -> pref -> GP catch-up -> carry split)", "Standard private-fund LPA waterfall mechanics", "Standard practice", "Whole-fund/European structure (cumulative), not deal-by-deal/American"),
+        ("General catch-up formula for an arbitrary catch-up rate", "Derived from the target-carry identity GP_catchup/(pref+catchup)=carry%, solved for a catch-up tranche paid at rate g", "Derived, not copied from a single source", "Collapses to the standard 100%-catch-up formula when the catch-up rate = 100%"),
+        ("Default fee terms (2% mgmt, 8% hurdle, 20% carry, 100% catch-up)", "Common industry-standard private-fund terms", "Standard practice", "Illustrative defaults; replace with the actual LPA's terms"),
+        ("TVPI/DPI/RVPI and periodic IRR", "Standard LP-reporting metric definitions (ILPA-style)", "Standard practice", "Periodic IRR treats periods as evenly spaced -- use XIRR with real dates for irregular capital calls"),
+    ],
+    checks=[
+        ("Waterfall conserves: GP take + LP take = total distributable value (Fee Waterfall)", "='Fee Waterfall'!C23+'Fee Waterfall'!C24-'Fee Waterfall'!C10", "0 (exact) -- every dollar of distributable value lands with either the GP or the LPs"),
+        ("Cumulative carry reconstructs from its own increments (Period 3)", "='GP Carry & Clawback'!F20-'GP Carry & Clawback'!F17", "0 (exact) -- the running total of incremental carry must equal the cumulative figure it was built from"),
+        ("GP catch-up tranche is zero whenever catch-up % <= carry % (guards the division)", "=IF('Fee Waterfall'!C9<='Fee Waterfall'!C8,'Fee Waterfall'!C16=0,TRUE)", "TRUE"),
+        ("TVPI = DPI + RVPI identity", "=IFERROR('Fund Performance'!C18-('Fund Performance'!C16+'Fund Performance'!C17),\"-\")", "0 (exact) once capital has been called; \"-\" on a blank template"),
+    ],
+)
 
 add_refresh_log(wb)
 out_path = "AM_template.xlsx"

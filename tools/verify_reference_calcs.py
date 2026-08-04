@@ -679,6 +679,69 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Asset Management: whole-fund (European) GP carry waterfall recomputed
+# cumulatively each period, with a general (not hardcoded-to-100%)
+# catch-up formula, and a clawback when a later markdown pulls cumulative
+# profit down below what earlier-paid carry assumed.
+# ---------------------------------------------------------------------
+def check_am_gp_carry_clawback():
+    path = os.path.join(REPO_ROOT, "08_Asset_Management", "_template_AM.xlsx")
+    capital, hurdle, carry, catchup = 1_000_000, 0.08, 0.20, 1.00
+    # (contribution, gain, fee) per period -- period 3 is a markdown, engineered
+    # to trigger a clawback so "meaningful downside behavior" is actually exercised
+    periods = [
+        (1_000_000, 0, 0),
+        (0, 400_000, 20_000),
+        (0, 300_000, 20_000),
+        (0, -500_000, 20_000),
+    ]
+
+    def populate(wb):
+        nav = wb["Fund NAV"]
+        for i, (contrib, gain, fee) in enumerate(periods):
+            col = get_column_letter(3 + i)
+            nav[f"{col}6"], nav[f"{col}7"], nav[f"{col}8"], nav[f"{col}9"] = contrib, gain, fee, 0
+        fw = wb["Fee Waterfall"]
+        fw["C5"], fw["C6"], fw["C7"], fw["C8"], fw["C9"] = capital, 0.02, hurdle, carry, catchup
+
+    wb = with_recalc(path, populate)
+    gc = wb["GP Carry & Clawback"]
+
+    cum_capital = cum_gain = 0.0
+    prior_cum_carry = 0.0
+    ok = True
+    details = []
+    for i, (contrib, gain, fee) in enumerate(periods):
+        col_idx = 3 + i
+        cum_capital += contrib
+        cum_gain += gain - fee
+        value = cum_capital + cum_gain
+        roc = min(value, cum_capital)
+        pref = min(max(value - roc, 0), cum_capital * hurdle)
+        catchup_tranche = 0.0 if catchup <= carry else min(max(value - roc - pref, 0), pref * carry / (catchup - carry))
+        gp_catchup = catchup_tranche * catchup
+        remainder = max(value - roc - pref - catchup_tranche, 0)
+        gp_remainder = remainder * carry
+        cum_gp_carry = gp_catchup + gp_remainder
+        incremental = cum_gp_carry - prior_cum_carry
+        prior_cum_carry = cum_gp_carry
+
+        sheet_cum_carry = gc.cell(row=17, column=col_idx).value
+        sheet_incremental = gc.cell(row=19, column=col_idx).value
+        this_ok = close(sheet_cum_carry, cum_gp_carry, tol=1e-6) and close(sheet_incremental, incremental, tol=1e-6)
+        ok = ok and this_ok
+        details.append(f"P{i}: cum carry sheet={sheet_cum_carry:.0f}/ref={cum_gp_carry:.0f}, "
+                        f"incremental sheet={sheet_incremental:.0f}/ref={incremental:.0f} {'OK' if this_ok else 'MISMATCH'}")
+
+    clawback_period3 = gc.cell(row=21, column=6).value
+    clawback_ok = isinstance(clawback_period3, str) and clawback_period3.startswith("CLAWBACK")
+    ok = ok and clawback_ok
+    details.append(f"Period-3 clawback flag: '{clawback_period3}' ({'OK — markdown correctly triggers clawback' if clawback_ok else 'MISSING'})")
+
+    return "Asset Management: whole-fund GP carry waterfall + clawback on markdown", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Private Credit: Excess Cash Flow sweep with a leverage-based step-down
 # grid, non-circular (interest and the sweep tier both key off the
 # BEGINNING-of-period balance) — plus the mandatory-amortization formula
@@ -923,6 +986,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_am_gp_carry_clawback,
     check_credit_ecf_sweep_stepdown,
     check_public_finance_additional_bonds_test,
     check_cover_tab_field_alignment,

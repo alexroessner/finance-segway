@@ -65,11 +65,11 @@
       "workbook_template": "_template_AM.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "TVPI/DPI/RVPI and net IRR to LPs.",
+      "purpose": "TVPI/DPI/RVPI, net IRR to LPs, and a whole-fund (European) GP carry waterfall with clawback.",
       "risk_tier": "Tier 2",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["TVPI/DPI/RVPI mechanic added but never independently verified", "No fee/carry waterfall (hurdle, catch-up, carried interest)"]
+      "maturity": "M3",
+      "reference_checks": ["check_am_gp_carry_clawback"],
+      "known_limitations": ["Whole-fund/European waterfall only -- no deal-by-deal/American structure", "Periodic IRR (evenly-spaced periods), not XIRR with real dates", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "risk-management",
