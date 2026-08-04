@@ -247,11 +247,11 @@
       "workbook_template": "_template_QUANT.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Strategy performance: max drawdown, beta/alpha vs. benchmark.",
+      "purpose": "Strategy performance: max drawdown, beta/alpha vs. benchmark, Kelly position sizing, and Probabilistic Sharpe Ratio / Minimum Track Record Length.",
       "risk_tier": "Tier 2",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Drawdown/beta mechanic added but never independently verified", "No factor-exposure regression or autocorrelation-adjusted significance"]
+      "maturity": "M3",
+      "reference_checks": ["check_quant_psr_mintrl"],
+      "known_limitations": ["PSR/MinTRL assume i.i.d. returns -- no autocorrelation-adjusted effective-sample-size correction", "Single-factor CAPM beta only, no multi-factor regression", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "fintech-payments",

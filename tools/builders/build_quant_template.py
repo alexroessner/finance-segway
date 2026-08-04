@@ -86,6 +86,64 @@ ws2["D49"].font = ITALIC_GRAY
 for r2 in range(45, 50):
     ws2.cell(row=r2, column=3).border = BORDER
 
+# ---------------- STATISTICAL SIGNIFICANCE (PSR) ----------------
+ws = wb.create_sheet("Statistical Significance")
+set_col_widths(ws, [4, 40, 16, 46])
+ws["B2"] = "Probabilistic Sharpe Ratio & Minimum Track Record Length"; ws["B2"].font = TITLE
+ws["B3"] = ("A Sharpe ratio from a short, noisy, skewed return sample is an ESTIMATE, not a fact -- the naive "
+            "headline number overstates confidence. Bailey & Lopez de Prado's Probabilistic Sharpe Ratio answers "
+            "'how confident are we the TRUE Sharpe exceeds some benchmark,' correcting for sample length, "
+            "skewness, and kurtosis -- exactly the corrections a track record with only 24 months and fat tails "
+            "actually needs.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Inputs"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+ws["B6"] = "Benchmark Sharpe to test against, SR* (periodic/monthly)"
+c = ws.cell(row=6, column=3, value=0.0); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = '0.00'; c.border = BORDER
+ws["B7"] = "Confidence level (for Minimum Track Record Length)"
+c = ws.cell(row=7, column=3, value=0.95); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = PCT; c.border = BORDER
+
+ws["B9"] = "From the Return Sample"; ws["B9"].font = BOLD; ws["B9"].fill = GRAY_FILL
+ws["B10"] = "Number of periods, n"
+ws["C10"] = f"=COUNT('Returns & Sharpe'!C6:C{last_data_row})"; ws["C10"].font = GREEN; ws["C10"].number_format = NUM
+ws["C10"].border = BORDER
+ws["B11"] = "Skewness"
+ws["C11"] = f"=IFERROR(SKEW('Returns & Sharpe'!C6:C{last_data_row}),\"-\")"; ws["C11"].number_format = '0.000'
+ws["C11"].border = BORDER
+ws["B12"] = "Excess kurtosis (0 = normal)"
+ws["C12"] = f"=IFERROR(KURT('Returns & Sharpe'!C6:C{last_data_row}),\"-\")"; ws["C12"].number_format = '0.000'
+ws["C12"].border = BORDER
+ws["B13"] = "Periodic (monthly) Sharpe ratio, SR-hat"
+ws["C13"] = "=IFERROR(('Returns & Sharpe'!C35-'Returns & Sharpe'!C32/12)/'Returns & Sharpe'!C36,\"-\")"
+ws["C13"].font = BOLD; ws["C13"].number_format = '0.0000'; ws["C13"].border = BORDER
+
+ws["B15"] = "Probabilistic Sharpe Ratio"; ws["B15"].font = BOLD; ws["B15"].fill = GRAY_FILL
+ws["B16"] = "PSR denominator: sqrt(1 - skew x SR + (kurt+2)/4 x SR^2)"
+ws["C16"] = '=IFERROR(SQRT(1-C11*C13+(C12+2)/4*C13^2),"-")'; ws["C16"].number_format = '0.0000'
+ws["C16"].border = BORDER
+ws["D16"] = "Bailey & Lopez de Prado (2012). Reduces to sqrt(1/(n-1)) under normality (skew=0, excess kurt=0)."
+ws["D16"].font = ITALIC_GRAY
+ws["B17"] = "PSR z-statistic: (SR-hat - SR*) x sqrt(n-1) / denominator"
+ws["C17"] = '=IFERROR((C13-C6)*SQRT(C10-1)/C16,"-")'; ws["C17"].number_format = '0.0000'; ws["C17"].border = BORDER
+ws["B18"] = "PSR = P(true Sharpe > SR*)"
+ws["C18"] = '=IFERROR(NORMSDIST(C17),"-")'; ws["C18"].font = BOLD; ws["C18"].number_format = PCT
+ws["C18"].fill = YELLOW_FILL; ws["C18"].border = BORDER
+ws["D18"] = "Below ~95% is a real reason to doubt the headline Sharpe, no matter how good it looks"
+ws["D18"].font = ITALIC_GRAY
+
+ws["B20"] = "Minimum Track Record Length"; ws["B20"].font = BOLD; ws["B20"].fill = GRAY_FILL
+ws["B21"] = "z-score at chosen confidence (NORMSINV)"
+ws["C21"] = "=IFERROR(NORMSINV(C7),\"-\")"; ws["C21"].number_format = '0.0000'; ws["C21"].border = BORDER
+ws["B22"] = "MinTRL (periods needed at this confidence)"
+ws["C22"] = '=IFERROR(IF(C13<=C6,"undefined -- SR-hat must exceed SR*",1+(1-C11*C13+(C12+2)/4*C13^2)*(C21/(C13-C6))^2),"-")'
+ws["C22"].font = BOLD; ws["C22"].number_format = '0.0'; ws["C22"].border = BORDER
+ws["D22"] = "How many periods of track record, at this sample's skew/kurtosis, would be needed to be this confident SR-hat truly exceeds SR*"
+ws["D22"].font = ITALIC_GRAY
+ws["B23"] = "Track record adequate? (n vs. MinTRL)"
+ws["C23"] = '=IF(OR(NOT(ISNUMBER(C22)),NOT(ISNUMBER(C10))),"-",IF(C10>=C22,"ADEQUATE","TOO SHORT -- treat SR-hat with caution"))'
+ws["C23"].font = BOLD
+ws.sheet_view.showGridLines = False
+
 # ---------------- POSITION SIZING ----------------
 ws = wb.create_sheet("Position Sizing")
 set_col_widths(ws, [4, 30, 16, 40])
@@ -113,6 +171,22 @@ ws["C12"] = "=C7*C8"; ws["C12"].number_format = CUR
 for r2 in (10, 11, 12):
     ws.cell(row=r2, column=3).border = BORDER
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Probabilistic Sharpe Ratio (PSR)", "Bailey, D. and Lopez de Prado, M. (2012), \"The Sharpe Ratio Efficient Frontier\"", "Peer-reviewed methodology", "Assumes returns are i.i.d. within the sample (no autocorrelation adjustment) -- a genuinely autocorrelated strategy needs a further effective-sample-size correction this doesn't apply"),
+        ("Minimum Track Record Length (MinTRL)", "Bailey, D. and Lopez de Prado, M. (2012), same PSR paper", "Peer-reviewed methodology", "A diagnostic for how much history is needed at the CURRENT sample's skew/kurtosis, not a guarantee those higher moments are stable out of sample"),
+        ("Kelly criterion, W - (1-W)/R", "Kelly (1956) criterion for edge-optimal position sizing", "Standard practice", "Assumes win rate and payoff ratio are known and stationary -- in practice both are estimated with error, hence the 1/4-1/2 Kelly practitioner convention"),
+        ("Sharpe/Sortino/max drawdown/CAPM beta-alpha", "Standard risk-adjusted performance measurement conventions", "Standard practice", "Monthly-periodicity annualization (x12, xsqrt(12)) throughout -- would need adjustment for a different return frequency"),
+    ],
+    checks=[
+        ("PSR z-statistic sign matches whether SR-hat beats the benchmark (denominator is always positive)", "=IF(NOT(ISNUMBER('Statistical Significance'!C17)),TRUE,IF('Statistical Significance'!C13>='Statistical Significance'!C6,'Statistical Significance'!C17>=0,'Statistical Significance'!C17<=0))", "TRUE"),
+        ("MinTRL is undefined (not a false low number) when SR-hat doesn't exceed SR*", "=IF('Statistical Significance'!C13<='Statistical Significance'!C6,'Statistical Significance'!C22=\"undefined -- SR-hat must exceed SR*\",TRUE)", "TRUE"),
+        ("Max drawdown is always <= 0 (a decline, never a gain, by definition)", "=IF(ISNUMBER('Returns & Sharpe'!C42),'Returns & Sharpe'!C42<=0,TRUE)", "TRUE"),
+        ("Half-Kelly is exactly half of full Kelly", "=IFERROR('Position Sizing'!C11-('Position Sizing'!C7*'Position Sizing'!C10/2),\"-\")", "0 (exact) once account equity is populated"),
+    ],
+)
 
 add_refresh_log(wb)
 out_path = "QUANT_template.xlsx"

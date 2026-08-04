@@ -679,6 +679,58 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Quant: Probabilistic Sharpe Ratio + Minimum Track Record Length
+# (Bailey & Lopez de Prado) -- independently replicates Excel's exact
+# bias-corrected SKEW/KURT formulas, not just scipy's, to match the
+# sheet's own recalculated values precisely.
+# ---------------------------------------------------------------------
+def check_quant_psr_mintrl():
+    path = os.path.join(REPO_ROOT, "22_Quantitative_Systematic", "_template_QUANT.xlsx")
+    import random
+    random.seed(7)
+    returns = [random.gauss(0.015, 0.03) for _ in range(24)]
+    rf_annual = 0.03
+
+    def populate(wb):
+        rs = wb["Returns & Sharpe"]
+        for i, r in enumerate(returns):
+            rs.cell(row=6 + i, column=3, value=r)
+        rs["C32"] = rf_annual
+
+    wb = with_recalc(path, populate)
+    ss = wb["Statistical Significance"]
+
+    n = len(returns)
+    mean = sum(returns) / n
+    s = math.sqrt(sum((x - mean) ** 2 for x in returns) / (n - 1))
+    # Excel's exact bias-corrected SKEW/KURT formulas (not scipy's), so this
+    # matches the sheet's own SKEW()/KURT() recalculation precisely
+    skew = (n / ((n - 1) * (n - 2))) * sum(((x - mean) / s) ** 3 for x in returns)
+    kurt = (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * sum(((x - mean) / s) ** 4 for x in returns) \
+        - 3 * (n - 1) ** 2 / ((n - 2) * (n - 3))
+    sr_hat = (mean - rf_annual / 12) / s
+    sr_star = 0.0
+    psr_denom = math.sqrt(1 - skew * sr_hat + (kurt + 2) / 4 * sr_hat ** 2)
+    z = (sr_hat - sr_star) * math.sqrt(n - 1) / psr_denom
+    psr = norm_cdf(z)
+    z95 = 1.6448536269514722
+    mintrl = 1 + (1 - skew * sr_hat + (kurt + 2) / 4 * sr_hat ** 2) * (z95 / (sr_hat - sr_star)) ** 2
+
+    ok = True
+    details = []
+    for label, sheet_val, ref_val in [
+        ("skew", ss["C11"].value, skew), ("kurt", ss["C12"].value, kurt),
+        ("SR-hat", ss["C13"].value, sr_hat), ("PSR z", ss["C17"].value, z),
+        ("PSR", ss["C18"].value, psr), ("MinTRL", ss["C22"].value, mintrl),
+    ]:
+        this_ok = close(sheet_val, ref_val, tol=1e-4)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val} ref={ref_val:.4f} {'OK' if this_ok else 'MISMATCH'}")
+
+    return "Quant: Probabilistic Sharpe Ratio + Minimum Track Record Length", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Project Finance: sculpted debt schedule (non-circular) + a Debt Service
 # Reserve Account that prevents PAYMENT default without curing the softer
 # DSCR distribution-lock-up test -- the real distinction between the two
@@ -1259,6 +1311,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_quant_psr_mintrl,
     check_project_finance_dsra,
     check_microfinance_flat_vs_declining,
     check_fintech_interchange_durbin,
