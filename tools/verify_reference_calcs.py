@@ -303,6 +303,61 @@ def check_american_option_binomial():
 
 
 # ---------------------------------------------------------------------
+# Portfolio VaR: cross-check the 3-asset correlation-weighted portfolio
+# variance/VaR and component VaR against an independent Python
+# implementation, and confirm Euler's homogeneity theorem holds exactly
+# (component VaRs must sum to total portfolio VaR for a variance-based
+# risk measure) -- a strong self-consistency check baked into the sheet.
+# ---------------------------------------------------------------------
+def check_portfolio_var():
+    path = os.path.join(REPO_ROOT, "09_Risk_Management", "_template_RISK.xlsx")
+    w = {"A": 1_000_000.0, "B": 800_000.0, "C": 600_000.0}
+    sigma = {"A": 0.020, "B": 0.015, "C": 0.025}
+    rho = {("A", "B"): 0.30, ("A", "C"): 0.10, ("B", "C"): 0.50}
+
+    def populate(wb):
+        pv = wb["Portfolio VaR (Multi-Asset)"]
+        pv["C9"], pv["D9"] = w["A"], sigma["A"]
+        pv["C10"], pv["D10"] = w["B"], sigma["B"]
+        pv["C11"], pv["D11"] = w["C"], sigma["C"]
+        pv["D15"], pv["E15"], pv["E16"] = rho[("A", "B")], rho[("A", "C")], rho[("B", "C")]
+
+    wb = with_recalc(path, populate)
+    pv = wb["Portfolio VaR (Multi-Asset)"]
+
+    def get_rho(i, j):
+        if i == j:
+            return 1.0
+        return rho.get((i, j), rho.get((j, i)))
+
+    assets = ["A", "B", "C"]
+    port_var = sum(w[i] * w[j] * sigma[i] * sigma[j] * get_rho(i, j) for i in assets for j in assets)
+    z = 1.6448536269514722  # NORMSINV(0.95)
+    ref_port_var_dollar = (port_var ** 0.5) * z
+    ref_undiv = sum(w[i] * sigma[i] * z for i in assets)
+    ref_component = {}
+    for i in assets:
+        cov_i_port = sum(w[j] * sigma[i] * sigma[j] * get_rho(i, j) for j in assets)
+        ref_component[i] = (w[i] * cov_i_port / port_var) * ref_port_var_dollar
+
+    sheet_port_var = pv["C22"].value
+    sheet_undiv = pv["C23"].value
+    sheet_components = [pv.cell(row=r, column=3).value for r in (27, 28, 29)]
+    sheet_component_sum = pv["C30"].value
+
+    ok = (close(sheet_port_var, ref_port_var_dollar) and close(sheet_undiv, ref_undiv)
+          and all(close(s, ref_component[a]) for s, a in zip(sheet_components, assets))
+          and close(sheet_component_sum, sheet_port_var, tol=1e-6))
+
+    detail = (f"portfolio VaR: sheet={sheet_port_var:.2f} ref={ref_port_var_dollar:.2f} | "
+              f"undiversified: sheet={sheet_undiv:.2f} ref={ref_undiv:.2f} | "
+              f"components: sheet={[round(s, 2) for s in sheet_components]} "
+              f"ref={[round(ref_component[a], 2) for a in assets]} | "
+              f"component sum == portfolio VaR: {close(sheet_component_sum, sheet_port_var, tol=1e-6)}")
+    return "Portfolio VaR: correlation-weighted aggregation + Euler component-VaR check", ok, detail
+
+
+# ---------------------------------------------------------------------
 # Cover tab field alignment: weekly_refresh_check.py reads Cover!C6 as
 # "Last refreshed" and Cover!C7 as the next material date UNCONDITIONALLY,
 # for every archetype. If a template's Cover tab layout puts a different
@@ -433,6 +488,7 @@ CHECKS = [
     check_bond_duration,
     check_lbo_sources_uses_and_debt_schedule,
     check_american_option_binomial,
+    check_portfolio_var,
     check_cover_tab_field_alignment,
     check_vc_waterfall_conservation,
     check_base_archetype_integration,
