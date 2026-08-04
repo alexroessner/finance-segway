@@ -839,6 +839,75 @@ def check_options_greeks_finite_difference():
 
 
 # ---------------------------------------------------------------------
+# Insurance: Mack method distribution-free standard error of the
+# chain-ladder reserve -- independently re-derives the full sigma_k^2 /
+# completed-triangle / per-accident-year MSE cascade in Python.
+# ---------------------------------------------------------------------
+def check_insurance_mack_method():
+    path = os.path.join(REPO_ROOT, "18_Insurance_Actuarial", "_template_INSURANCE.xlsx")
+    triangle = {
+        5: [100, 150, 175, 190, 197, 200], 6: [110, 170, 200, 215, 222],
+        7: [105, 155, 183, 196], 8: [120, 175, 205], 9: [130, 195], 10: [140],
+    }
+
+    def populate(wb):
+        tri = wb["Loss Reserve Triangle"]
+        for row, vals in triangle.items():
+            for i, v in enumerate(vals):
+                tri.cell(row=row, column=3 + i, value=v)
+
+    wb = with_recalc(path, populate)
+    mm = wb["Mack Method"]
+
+    tri_data = {ay: triangle[row] for ay, row in zip(range(6), [5, 6, 7, 8, 9, 10])}
+
+    link = []
+    for k in range(5):
+        num = sum(tri_data[ay][k + 1] for ay in range(6) if len(tri_data[ay]) > k + 1)
+        den = sum(tri_data[ay][k] for ay in range(6) if len(tri_data[ay]) > k + 1)
+        link.append(num / den)
+
+    sigma2 = []
+    for k in range(4):
+        n = sum(1 for ay in range(6) if len(tri_data[ay]) > k + 1)
+        s = sum(tri_data[ay][k] * (tri_data[ay][k + 1] / tri_data[ay][k] - link[k]) ** 2
+                for ay in range(6) if len(tri_data[ay]) > k + 1)
+        sigma2.append(s / (n - 1))
+    sigma2.append(min(sigma2[3], sigma2[2], sigma2[3] ** 2 / sigma2[2]))  # Mack's last-factor extrapolation
+
+    S = [sum(tri_data[ay][k] for ay in range(6) if len(tri_data[ay]) > k + 1) for k in range(5)]
+
+    cdf_by_dev = [1.0] * 6
+    for dev in range(4, -1, -1):
+        cdf_by_dev[dev] = link[dev] * cdf_by_dev[dev + 1]
+
+    ok = True
+    details = []
+    for ay in range(6):
+        d_i = len(tri_data[ay])
+        latest = tri_data[ay][-1]
+        cdf = cdf_by_dev[d_i - 1]
+        ultimate = latest * cdf
+        completed = list(tri_data[ay])
+        for k in range(d_i, 6):
+            completed.append(completed[-1] * link[k - 1])
+        mse = 0.0
+        for k in range(d_i, 6):
+            idx = k - 1
+            c_ik = completed[k - 1]
+            mse += (sigma2[idx] / link[idx] ** 2) * (1 / c_ik + 1 / S[idx])
+        mse *= ultimate ** 2
+        se = mse ** 0.5
+
+        sheet_se = mm.cell(row=25 + ay, column=6).value
+        this_ok = close(sheet_se, se, tol=1e-3) if se > 0 else (sheet_se == 0)
+        ok = ok and this_ok
+        details.append(f"AY{2020+ay}: SE sheet={sheet_se} ref={se:.4f} {'OK' if this_ok else 'MISMATCH'}")
+
+    return "Insurance: Mack method standard error (independent sigma_k^2 + MSE cascade)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Trade Finance: early-payment discount implied APR (the classic
 # "2/10 net 30" corporate-finance factoid) + reverse factoring priced
 # off the buyer's stronger credit.
@@ -1718,6 +1787,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_insurance_mack_method,
     check_options_greeks_finite_difference,
     check_risk_historical_vs_parametric_var,
     check_base_dcf_comps_triangulation,

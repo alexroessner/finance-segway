@@ -191,11 +191,11 @@
       "workbook_template": "_template_INSURANCE.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Chain-ladder and Bornhuetter-Ferguson loss reserving.",
+      "purpose": "Chain-ladder and Bornhuetter-Ferguson loss reserving, plus Mack-method distribution-free standard error / reserve range.",
       "risk_tier": "Tier 1",
-      "maturity": "M2",
-      "reference_checks": ["check_bornhuetter_ferguson"],
-      "known_limitations": ["No Sources/Checks sheet or model card/validation record yet (M3 gate)", "No stochastic reserving (Mack method / bootstrap) for a reserve range, only point estimates"]
+      "maturity": "M3",
+      "reference_checks": ["check_bornhuetter_ferguson", "check_insurance_mack_method"],
+      "known_limitations": ["Total-reserve Mack SE excludes the cross-accident-year covariance term (documented on the sheet, understates true total volatility)", "Reserve range uses a normal approximation (+/-1.96 SE); the true distribution is typically right-skewed", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "securitization",
