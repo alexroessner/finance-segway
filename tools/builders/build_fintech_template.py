@@ -4,9 +4,17 @@ from template_helpers import *
 wb = openpyxl.Workbook()
 wb.remove(wb.active)
 
+# "Last refreshed" must land on row 6 (C6) -- weekly_refresh_check.py reads
+# it unconditionally. This tab previously had only one field before it
+# ("Business model"), landing Last refreshed on row 5 instead: the checker
+# read "Refresh cadence" (text like "Weekly", unparseable as a date) at C6
+# and silently flagged every Fintech instance "NO REFRESH DATE SET" even
+# when properly filled in.
 add_cover(wb, "[COMPANY] — Fintech / Payments Model", [
     ("Business model:", "Payments / lending / neobank / infra"),
+    ("Regulatory status:", "[licensed / partner bank / sponsor bank]"),
     ("Last refreshed:", "[date]"),
+    ("Next cohort/unit-economics review:", "[date]"),
     ("Refresh cadence:", "Weekly"),
 ])
 

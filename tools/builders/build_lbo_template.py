@@ -43,8 +43,16 @@ def set_col_widths(ws, widths):
 ws = wb.create_sheet("Cover")
 set_col_widths(ws, [4, 30, 40, 4])
 ws["B2"] = "[TARGET] — LBO Model"; ws["B2"].font = TITLE
+# "Last refreshed" MUST land on row 6 (C6) and the next material date on row
+# 7 (C7) -- weekly_refresh_check.py reads those two cells unconditionally,
+# regardless of archetype. An earlier version of this Cover tab put Entry
+# date before Last refreshed, which shifted both by one row: the checker
+# silently read Entry date as the refresh date and the real refresh date as
+# the next-material-date, on every Private Equity / Merchant Banking
+# instance (both domains share this template).
 fields = [("Sponsor:", ""), ("Deal type:", "LBO / take-private / add-on"),
-          ("Entry date:", "[date]"), ("Last refreshed:", "[date]"),
+          ("Last refreshed:", "[date]"), ("Next covenant/refinancing date:", "[date]"),
+          ("Entry date:", "[date]"),
           ("Hold period (yrs):", 5), ("Refresh cadence:", "Weekly")]
 r = 4
 for label, default in fields:
@@ -211,7 +219,7 @@ ws["B15"] = "Exit equity value"; ws["C15"] = "=C13-C14"; ws["C15"].font = BOLD; 
 
 ws["B17"] = "Returns"; ws["B17"].font = BOLD; ws["B17"].fill = GRAY_FILL
 ws["B18"] = "MOIC"; ws["C18"] = "=IFERROR(C15/C8,\"-\")"; ws["C18"].font = BOLD; ws["C18"].number_format = MULT
-ws["B19"] = "Hold period (yrs)"; ws["C19"] = "=Cover!C8"; ws["C19"].font = GREEN
+ws["B19"] = "Hold period (yrs)"; ws["C19"] = "=Cover!C9"; ws["C19"].font = GREEN
 ws["B20"] = "IRR"; ws["C20"] = "=IFERROR(C18^(1/C19)-1,\"-\")"; ws["C20"].font = BOLD; ws["C20"].number_format = PCT
 ws.sheet_view.showGridLines = False
 

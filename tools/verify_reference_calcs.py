@@ -207,6 +207,45 @@ def check_lbo_sources_uses_and_debt_schedule():
 
 
 # ---------------------------------------------------------------------
+# Cover tab field alignment: weekly_refresh_check.py reads Cover!C6 as
+# "Last refreshed" and Cover!C7 as the next material date UNCONDITIONALLY,
+# for every archetype. If a template's Cover tab layout puts a different
+# field at C6/C7 (e.g. an extra field inserted before "Last refreshed"),
+# the checker silently reads the wrong cell — either misparsing a label as
+# a date (usually harmless, just drops the date silently) or, worse,
+# misreading a REAL date in the wrong field as if it were the refresh date
+# (actively wrong, not just missing). This exact bug shipped in the LBO,
+# Insurance, and Fintech archetypes and was only caught by populating a
+# real instance and watching the weekly checker misfire on it.
+# ---------------------------------------------------------------------
+def check_cover_tab_field_alignment():
+    domain_dirs = sorted(
+        d for d in os.listdir(REPO_ROOT)
+        if os.path.isdir(os.path.join(REPO_ROOT, d)) and d[:2].isdigit()
+    )
+    bad = []
+    checked = 0
+    for d in domain_dirs:
+        domain_path = os.path.join(REPO_ROOT, d)
+        for fname in os.listdir(domain_path):
+            if fname.startswith("_template_") and fname.endswith(".xlsx"):
+                path = os.path.join(domain_path, fname)
+                wb = openpyxl.load_workbook(path)
+                if "Cover" not in wb.sheetnames:
+                    bad.append(f"{d}/{fname}: no Cover tab")
+                    continue
+                cov = wb["Cover"]
+                label = str(cov["B6"].value or "")
+                checked += 1
+                if "last refresh" not in label.lower():
+                    bad.append(f"{d}/{fname}: B6 label is {label!r}, expected something containing 'Last refreshed'")
+
+    ok = len(bad) == 0
+    detail = f"checked {checked} archetype templates" + (f" | misaligned: {bad}" if bad else " | all aligned")
+    return "Cover tab field alignment (Last refreshed must be at C6, every archetype)", ok, detail
+
+
+# ---------------------------------------------------------------------
 # VC Exit Waterfall: conservation (this is the exact bug class caught and
 # fixed mid-session — pinned here as a permanent regression test).
 # ---------------------------------------------------------------------
@@ -297,6 +336,7 @@ CHECKS = [
     check_black_scholes,
     check_bond_duration,
     check_lbo_sources_uses_and_debt_schedule,
+    check_cover_tab_field_alignment,
     check_vc_waterfall_conservation,
     check_base_archetype_integration,
 ]

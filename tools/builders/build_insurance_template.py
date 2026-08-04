@@ -4,9 +4,17 @@ from template_helpers import *
 wb = openpyxl.Workbook()
 wb.remove(wb.active)
 
+# "Last refreshed" must land on row 6 (C6) -- weekly_refresh_check.py reads
+# it unconditionally. This tab previously had only one field before it
+# ("Line of business"), landing Last refreshed on row 5 instead: the checker
+# read "Refresh cadence" (text like "Weekly", unparseable as a date) at C6
+# and silently flagged every Insurance instance "NO REFRESH DATE SET" even
+# when properly filled in.
 add_cover(wb, "[INSURER] — Insurance / Actuarial Model", [
     ("Line of business:", "P&C / Life / Health / Reinsurance"),
+    ("Carrier / cedant:", "[fill in]"),
     ("Last refreshed:", "[date]"),
+    ("Next reserve review date:", "[date]"),
     ("Refresh cadence:", "Weekly (quarterly for reserves)"),
 ])
 
