@@ -98,6 +98,48 @@ for r2 in range(18, 22):
     ws.cell(row=r2, column=3).border = BORDER
 ws.sheet_view.showGridLines = False
 
+# ---------------- DYNAMIC DISCOUNTING & SUPPLY CHAIN FINANCE ----------------
+ws = wb.create_sheet("Dynamic Discounting & SCF")
+set_col_widths(ws, [4, 34, 16, 46])
+ws["B2"] = "Dynamic Discounting & Supply Chain Finance"; ws["B2"].font = TITLE
+ws["B3"] = ("Two mechanisms this repo's other trade-finance channels don't cover: the implied APR of a standard "
+            "early-payment TRADE discount (the classic \"2/10 net 30\" factoid), and reverse factoring, which "
+            "prices off the BUYER's stronger credit rather than the supplier's own -- the actual reason supply "
+            "chain finance programs exist.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Early-Payment Trade Discount"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+ws["B6"] = "Discount % (e.g. the \"2\" in 2/10 net 30)"
+c = ws.cell(row=6, column=3, value=0.02); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = PCT2; c.border = BORDER
+ws["B7"] = "Discount period (days, the \"10\")"
+c = ws.cell(row=7, column=3, value=10); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = NUM; c.border = BORDER
+ws["B8"] = "Net due period (days, the \"30\")"
+c = ws.cell(row=8, column=3, value=30); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = NUM; c.border = BORDER
+ws["B9"] = "Implied APR of FORGOING the discount"
+ws["C9"] = "=IFERROR((C6/(1-C6))*(360/(C8-C7)),\"-\")"; ws["C9"].font = BOLD; ws["C9"].number_format = PCT
+ws["C9"].fill = YELLOW_FILL; ws["C9"].border = BORDER
+ws["D9"] = "Standard formula: (discount%/(1-discount%)) x (360/(net days - discount days)) -- the classic corporate-finance textbook convention (360-day year). 2/10 net 30 works out to ~36.7% -- paying on day 30 instead of day 10 is effectively borrowing at that rate for 20 days."
+ws["D9"].font = ITALIC_GRAY
+
+ws["B11"] = "Supply Chain Finance (Reverse Factoring)"; ws["B11"].font = BOLD; ws["B11"].fill = GRAY_FILL
+ws["B12"] = "Invoice face value ($)"
+c = ws.cell(row=12, column=3, value=0); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = CUR; c.border = BORDER
+ws["B13"] = "Buyer's (stronger) credit-based discount rate, annual (%)"
+c = ws.cell(row=13, column=3, value=0.045); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = PCT2; c.border = BORDER
+ws["B14"] = "Days paid early (vs. invoice due date)"
+c = ws.cell(row=14, column=3, value=60); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = NUM; c.border = BORDER
+ws["B15"] = "SCF cost ($)"
+ws["C15"] = "=C12*C13*(C14/365)"; ws["C15"].number_format = CUR; ws["C15"].border = BORDER
+ws["B16"] = "SCF annualized cost (%)"
+ws["C16"] = "=C13"; ws["C16"].font = BOLD; ws["C16"].number_format = PCT2; ws["C16"].border = BORDER
+ws["B17"] = "Supplier's own standalone factoring rate (from LC & Factoring tab)"
+ws["C17"] = "='LC & Factoring Cost'!C21"; ws["C17"].font = GREEN; ws["C17"].number_format = PCT2; ws["C17"].border = BORDER
+ws["B18"] = "SCF savings vs. standalone factoring (percentage points)"
+ws["C18"] = "=IFERROR(C17-C16,\"-\")"; ws["C18"].font = BOLD; ws["C18"].number_format = PCT2; ws["C18"].border = BORDER
+ws["D18"] = "This gap -- financing off the buyer's credit instead of the supplier's own -- is the entire reason SCF/reverse-factoring programs (Taulia, PrimeRevenue, C2FO, etc.) exist"
+ws["D18"].font = ITALIC_GRAY
+ws.sheet_view.showGridLines = False
+
 # ---------------- FINANCING COST COMPARISON ----------------
 ws = wb.create_sheet("Financing Cost Comparison")
 set_col_widths(ws, [4, 30, 16, 40])
@@ -133,20 +175,40 @@ ws["B16"] = "Factoring / invoice discounting"
 ws["C16"] = "='LC & Factoring Cost'!C21"; ws["C16"].font = GREEN; ws["C16"].number_format = PCT
 ws["B17"] = "Revolving credit line"
 ws["C17"] = "=C11"; ws["C17"].font = GREEN; ws["C17"].number_format = PCT
-for r2 in (15, 16, 17):
+ws["B18"] = "Early-payment discount forgone (opportunity cost of not paying early)"
+ws["C18"] = "='Dynamic Discounting & SCF'!C9"; ws["C18"].font = GREEN; ws["C18"].number_format = PCT
+ws["B19"] = "Supply chain finance (reverse factoring)"
+ws["C19"] = "='Dynamic Discounting & SCF'!C16"; ws["C19"].font = GREEN; ws["C19"].number_format = PCT
+for r2 in (15, 16, 17, 18, 19):
     ws.cell(row=r2, column=3).border = BORDER
 
-ws["B19"] = "Cheapest channel"
-ws["C19"] = '=IF(COUNT(C15:C17)<3,"-",INDEX(B15:B17,MATCH(MIN(C15:C17),C15:C17,0)))'
-ws["C19"].font = BOLD; ws["C19"].border = BORDER
-ws["B20"] = "Cheapest annualized cost %"
-ws["C20"] = "=IF(COUNT(C15:C17)<3,\"-\",MIN(C15:C17))"; ws["C20"].font = BOLD; ws["C20"].number_format = PCT
-ws["C20"].border = BORDER
-ws["D19"] = "Only declares a winner once all three channels have real numbers — one live rate shouldn't beat two blanks by default"
-ws["D19"].font = ITALIC_GRAY
-ws["D20"] = "Compares only financing cost — also weigh speed, collateral/covenant burden, and counterparty credit risk transfer (LC shifts payment risk to the issuing bank; factoring can be non-recourse)"
-ws["D20"].font = ITALIC_GRAY
+ws["B21"] = "Cheapest channel"
+ws["C21"] = '=IF(COUNT(C15:C19)<5,"-",INDEX(B15:B19,MATCH(MIN(C15:C19),C15:C19,0)))'
+ws["C21"].font = BOLD; ws["C21"].border = BORDER
+ws["B22"] = "Cheapest annualized cost %"
+ws["C22"] = "=IF(COUNT(C15:C19)<5,\"-\",MIN(C15:C19))"; ws["C22"].font = BOLD; ws["C22"].number_format = PCT
+ws["C22"].border = BORDER
+ws["D21"] = "Only declares a winner once all five channels have real numbers — one live rate shouldn't beat four blanks by default"
+ws["D21"].font = ITALIC_GRAY
+ws["D22"] = "Compares only financing cost — also weigh speed, collateral/covenant burden, and counterparty credit risk transfer (LC shifts payment risk to the issuing bank; factoring can be non-recourse; SCF depends on the buyer maintaining its own credit quality)"
+ws["D22"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Early-payment discount implied APR: (d/(1-d)) x (365/(net-discount days))", "Classic corporate-finance working-capital formula (the \"2/10 net 30\" factoid)", "Standard practice", "Assumes the discount is genuinely available and the buyer has the cash to take it -- otherwise this is a hypothetical cost, not cash actually at risk"),
+        ("Reverse factoring priced off the buyer's credit rating, not the supplier's", "Standard supply-chain-finance program mechanics (Taulia, PrimeRevenue, C2FO and similar platforms)", "Standard practice", "Requires the buyer to sponsor/anchor the program -- not available to a supplier unilaterally the way standalone factoring is"),
+        ("Cash conversion cycle (DSO+DIO-DPO)", "Standard working-capital-cycle definition", "Standard practice", "Uses average balance-sheet figures, not a true days-weighted transaction-level calculation"),
+        ("Financing-cost-only channel comparison", "This model's own explicit framing", "Modeling choice, stated directly on the sheet", "Deliberately ignores speed, collateral/covenant burden, and credit-risk transfer differences between channels -- noted directly rather than silently assumed away"),
+    ],
+    checks=[
+        ("2/10 net 30 reproduces the commonly cited ~37% APR benchmark", "=IF(AND('Dynamic Discounting & SCF'!C6=0.02,'Dynamic Discounting & SCF'!C7=10,'Dynamic Discounting & SCF'!C8=30),ABS('Dynamic Discounting & SCF'!C9-0.3673)<0.001,TRUE)", "TRUE at the default 2/10 net 30 terms -- confirms the formula reproduces the textbook figure, not just internally consistent arithmetic"),
+        ("SCF is cheaper than the supplier's own standalone factoring whenever the buyer's credit is genuinely stronger", "=IF('Dynamic Discounting & SCF'!C13<'Dynamic Discounting & SCF'!C17,'Dynamic Discounting & SCF'!C18>0,TRUE)", "TRUE -- the entire premise of reverse factoring only holds when the buyer's rate really is lower"),
+        ("Cheapest-channel comparison never declares a winner on partial data", "=IF(COUNT('Financing Cost Comparison'!C15:C19)<5,'Financing Cost Comparison'!C21=\"-\",TRUE)", "TRUE"),
+        ("LC total cost ties: issuance+confirmation fee x face x (tenor/365) = annualized cost x face x (tenor/365)", "=IFERROR('LC & Factoring Cost'!C9-'LC & Factoring Cost'!C10*'LC & Factoring Cost'!C5*('LC & Factoring Cost'!C8/365),\"-\")", "0 (exact) once LC inputs are populated"),
+    ],
+)
 
 add_refresh_log(wb)
 out_path = "TRADE_FINANCE_template.xlsx"

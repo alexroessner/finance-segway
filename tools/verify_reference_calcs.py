@@ -679,6 +679,50 @@ def check_cover_tab_field_alignment():
 
 
 # ---------------------------------------------------------------------
+# Trade Finance: early-payment discount implied APR (the classic
+# "2/10 net 30" corporate-finance factoid) + reverse factoring priced
+# off the buyer's stronger credit.
+# ---------------------------------------------------------------------
+def check_trade_finance_dynamic_discounting():
+    path = os.path.join(REPO_ROOT, "10_Trade_Finance", "_template_TRADE_FINANCE.xlsx")
+    discount_pct, discount_days, net_days = 0.02, 10, 30
+    invoice_face, scf_rate, days_early = 500_000, 0.045, 60
+
+    def populate(wb):
+        dd = wb["Dynamic Discounting & SCF"]
+        dd["C6"], dd["C7"], dd["C8"] = discount_pct, discount_days, net_days
+        dd["C12"], dd["C13"], dd["C14"] = invoice_face, scf_rate, days_early
+        lc = wb["LC & Factoring Cost"]
+        lc["C14"], lc["C15"], lc["C16"], lc["C17"] = 500_000, 0.85, 0.02, 60
+
+    wb = with_recalc(path, populate)
+    dd = wb["Dynamic Discounting & SCF"]
+
+    ref_apr = (discount_pct / (1 - discount_pct)) * (360 / (net_days - discount_days))
+    ref_scf_cost = invoice_face * scf_rate * (days_early / 365)
+
+    ok = True
+    details = []
+    this_ok = close(dd["C9"].value, ref_apr)
+    ok = ok and this_ok
+    details.append(f"2/10 net 30 implied APR: sheet={dd['C9'].value:.4f} ref={ref_apr:.4f} {'OK' if this_ok else 'MISMATCH'}")
+
+    canonical_ok = close(ref_apr, 0.3673469387755102, tol=1e-6)
+    ok = ok and canonical_ok
+    details.append(f"reproduces the canonical textbook ~36.7% figure: {'OK' if canonical_ok else 'FAIL'}")
+
+    this_ok2 = close(dd["C15"].value, ref_scf_cost)
+    ok = ok and this_ok2
+    details.append(f"SCF cost: sheet={dd['C15'].value:.2f} ref={ref_scf_cost:.2f} {'OK' if this_ok2 else 'MISMATCH'}")
+
+    scf_cheaper = dd["C16"].value < dd["C17"].value
+    ok = ok and scf_cheaper
+    details.append(f"SCF rate ({dd['C16'].value:.4f}) < standalone factoring rate ({dd['C17'].value:.4f}): {'OK' if scf_cheaper else 'FAIL'}")
+
+    return "Trade Finance: dynamic discounting APR + supply chain finance", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Restructuring: EV sensitivity showing WHERE the fulcrum security moves
 # across a range of enterprise values -- not just what it is at one point
 # estimate.
@@ -1443,6 +1487,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_trade_finance_dynamic_discounting,
     check_restructuring_ev_sensitivity,
     check_real_estate_lp_gp_promote,
     check_quant_psr_mintrl,

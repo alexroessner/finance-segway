@@ -93,11 +93,11 @@
       "workbook_template": "_template_TRADE_FINANCE.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Financing-cost comparison across LC, factoring, and revolver.",
+      "purpose": "Financing-cost comparison across LC, factoring, revolver, early-payment discounting, and supply chain finance (reverse factoring).",
       "risk_tier": "Tier 2",
-      "maturity": "M1",
-      "reference_checks": [],
-      "known_limitations": ["Financing-cost comparison added but never independently verified", "No supply-chain-finance / dynamic-discounting mechanic"]
+      "maturity": "M3",
+      "reference_checks": ["check_trade_finance_dynamic_discounting"],
+      "known_limitations": ["Financing-cost-only comparison -- deliberately ignores speed/collateral/credit-risk-transfer differences (stated on the sheet)", "SCF requires a buyer-sponsored program, not available to a supplier unilaterally", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "microfinance",
