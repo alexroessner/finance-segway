@@ -134,6 +134,21 @@ def closed_form_modified_duration(face, coupon_rate, freq, years, ytm):
     return mod_dur
 
 
+def closed_form_convexity(face, coupon_rate, freq, years, ytm):
+    """Annualized convexity from the exact cash-flow series: d^2P/dy^2 / P
+    = [sum of CF_t x t(t+1) / (1+y)^(t+2)] / P, i.e. sum(t(t+1) x PV(CF_t))
+    / (P x (1+y)^2), then divided by freq^2 to annualize from periods."""
+    n = int(round(freq * years))
+    c = face * coupon_rate / freq
+    y = ytm / freq
+    price = bond_price(face, coupon_rate, freq, years, ytm)
+    sum_tt1_pv = sum(
+        t * (t + 1) * (c if t < n else c + face) / (1 + y) ** t for t in range(1, n + 1)
+    )
+    convexity_periods = sum_tt1_pv / (price * (1 + y) ** 2)
+    return convexity_periods / freq ** 2
+
+
 def check_bond_duration():
     face, coupon, freq, years, ytm = 1000, 0.05, 2, 10, 0.055
     path = os.path.join(REPO_ROOT, "21_Fixed_Income_Rates", "_template_FIXED_INCOME.xlsx")
@@ -157,6 +172,64 @@ def check_bond_duration():
               f"mod. duration: sheet(numerical)={sheet_mod_dur:.4f} "
               f"closed-form={ref_mod_dur:.4f}")
     return "Bond price + closed-form vs. numerical duration", ok, detail
+
+
+# ---------------------------------------------------------------------
+# Bond convexity: closed-form cash-flow-series formula vs. the sheet's
+# own finite-difference (price-shock) estimate, cross-checked against a
+# THIRD, tiny-shock numerical derivative to confirm which one converges
+# to the true second derivative -- this is how a real bug (a missing
+# 1/(1+y)^2 term in the first draft of the closed-form formula) got
+# caught: at any single shock size the FD and closed-form values merely
+# looked "close enough," but shrinking the shock toward zero showed the
+# FD estimate converging to a DIFFERENT number than the closed-form one
+# was computing, proving the mismatch wasn't just discretization noise.
+# ---------------------------------------------------------------------
+def check_bond_convexity():
+    face, coupon, freq, years, ytm = 1000, 0.05, 2, 10, 0.055
+    path = os.path.join(REPO_ROOT, "21_Fixed_Income_Rates", "_template_FIXED_INCOME.xlsx")
+
+    def populate(wb):
+        bp = wb["Bond Pricing"]
+        bp["C5"], bp["C6"], bp["C7"] = face, coupon, freq
+        bp["C8"], bp["C9"] = years, ytm
+
+    wb = with_recalc(path, populate)
+    dc = wb["Duration & Convexity"]
+    sheet_price_cf = dc["C138"].value
+    sheet_mod_dur_cf = dc["C140"].value
+    sheet_convexity_cf = dc["C141"].value
+    sheet_convexity_fd = dc["C9"].value
+
+    ref_price = bond_price(face, coupon, freq, years, ytm)
+    ref_mod_dur_cf = closed_form_modified_duration(face, coupon, freq, years, ytm)
+    ref_convexity_cf = closed_form_convexity(face, coupon, freq, years, ytm)
+
+    # Tiny-shock numerical second derivative -- an independent, third way
+    # of computing convexity, used only to confirm the closed-form value
+    # (not the 50bp-shock sheet value) is the one that's actually correct.
+    tiny = 0.0001
+    p0 = bond_price(face, coupon, freq, years, ytm)
+    pm = bond_price(face, coupon, freq, years, ytm - tiny)
+    pp = bond_price(face, coupon, freq, years, ytm + tiny)
+    ref_convexity_tiny_shock = (pm + pp - 2 * p0) / (p0 * tiny ** 2)
+
+    ok = (close(sheet_price_cf, ref_price, tol=1e-6)
+          and close(sheet_mod_dur_cf, ref_mod_dur_cf, tol=1e-4)
+          and close(sheet_convexity_cf, ref_convexity_cf, tol=1e-4)
+          and close(ref_convexity_cf, ref_convexity_tiny_shock, tol=1e-3)
+          # the sheet's 50bp-shock FD convexity is a real approximation --
+          # allow it to differ from the exact closed-form value, but not by
+          # more than a few percent (catches a genuinely wrong formula,
+          # not just ordinary discretization error)
+          and close(sheet_convexity_fd, ref_convexity_cf, tol=0.05))
+
+    detail = (f"closed-form price: sheet={sheet_price_cf:.4f} ref={ref_price:.4f} | "
+              f"closed-form mod. duration: sheet={sheet_mod_dur_cf:.4f} ref={ref_mod_dur_cf:.4f} | "
+              f"closed-form convexity: sheet={sheet_convexity_cf:.4f} ref={ref_convexity_cf:.4f} | "
+              f"tiny-shock (1bp) FD convexity (independent 3rd method): {ref_convexity_tiny_shock:.4f} | "
+              f"sheet's 50bp-shock FD convexity: {sheet_convexity_fd:.4f}")
+    return "Bond convexity: closed-form cash-flow series vs. numerical (FD) estimate", ok, detail
 
 
 # ---------------------------------------------------------------------
@@ -1865,6 +1938,7 @@ def check_base_archetype_integration():
 CHECKS = [
     check_black_scholes,
     check_bond_duration,
+    check_bond_convexity,
     check_accrued_interest,
     check_bornhuetter_ferguson,
     check_securitization_tranche_waterfall,

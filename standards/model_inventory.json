@@ -233,11 +233,11 @@
       "workbook_template": "_template_FIXED_INCOME.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Bond pricing/duration and accrued interest across day-count conventions.",
+      "purpose": "Bond pricing/duration/convexity and accrued interest across day-count conventions.",
       "risk_tier": "Tier 1",
-      "maturity": "M2",
-      "reference_checks": ["check_bond_duration", "check_accrued_interest"],
-      "known_limitations": ["No Sources/Checks sheet or model card/validation record yet (M3 gate)", "No yield-curve bootstrapping or convexity"]
+      "maturity": "M3",
+      "reference_checks": ["check_bond_duration", "check_bond_convexity", "check_accrued_interest"],
+      "known_limitations": ["No yield-curve bootstrapping (par/spot/forward curve construction)", "No embedded optionality (callable/putable) -- OAS not modeled", "Closed-form cash flow schedule supports up to 120 periods; more periods silently truncate (flagged on-sheet)", "No populated instance yet (M4 gate)"]
     },
     {
       "id": "quant-systematic",

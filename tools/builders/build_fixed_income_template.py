@@ -63,7 +63,110 @@ ws["C10"] = "=IFERROR(-C8*0.01+0.5*C9*0.01^2,\"-\")"
 ws["C10"].number_format = PCT2
 for r2 in range(6, 11):
     ws.cell(row=r2, column=3).border = BORDER
+
+# ---- Closed-form (analytic) cross-check: build the actual period-by-
+# period cash flow schedule and derive Macaulay/modified duration and
+# convexity from their textbook definitions (sum of t x PV(CF_t), sum of
+# t(t+1) x PV(CF_t)), rather than the finite-difference price-shock
+# approximation above. The two methods are conceptually independent
+# (one differentiates the price formula numerically, the other sums a
+# closed-form series) and should agree closely for a well-behaved bond. ----
+MAXP = 120  # supports up to 120 periods (e.g. 60y semi-annual, 30y quarterly, 10y monthly)
+n_ref = "'Bond Pricing'!$C$7*'Bond Pricing'!$C$8"
+y_ref = "'Bond Pricing'!$C$9/'Bond Pricing'!$C$7"
+coupon_ref = "'Bond Pricing'!$C$5*'Bond Pricing'!$C$6/'Bond Pricing'!$C$7"
+face_ref = "'Bond Pricing'!$C$5"
+
+ws["B12"] = "Closed-Form Cross-Check (exact cash flow schedule)"
+ws["B12"].font = BOLD; ws["B12"].fill = GRAY_FILL
+ws["B13"] = ("Sums t x PV(CF) and t(t+1) x PV(CF) across every period from the bond's actual cash flows -- "
+             "the textbook closed-form definition, independent of the finite-difference shock above.")
+ws["B13"].font = ITALIC_GRAY
+
+table_headers = ["Period", "Cash flow ($)", "PV factor", "PV(CF)", "t x PV(CF)", "t(t+1) x PV(CF)"]
+header_row = 15
+for i, h in enumerate(table_headers, start=2):
+    ws.cell(row=header_row, column=i, value=h)
+style_header_row(ws, header_row, len(table_headers) - 1, start_col=2)
+
+first_data_row = header_row + 1
+for i in range(MAXP):
+    r2 = first_data_row + i
+    t = i + 1
+    ws.cell(row=r2, column=2, value=t).font = BLACK
+    ws.cell(row=r2, column=3,
+            value=f"=IF({t}>{n_ref},0,IF({t}={n_ref},{coupon_ref}+{face_ref},{coupon_ref}))")
+    ws.cell(row=r2, column=3).number_format = CUR2
+    ws.cell(row=r2, column=4, value=f"=1/(1+{y_ref})^{t}")
+    ws.cell(row=r2, column=4).number_format = "0.000000"
+    ws.cell(row=r2, column=5, value=f"=C{r2}*D{r2}")
+    ws.cell(row=r2, column=5).number_format = CUR2
+    ws.cell(row=r2, column=6, value=f"={t}*E{r2}")
+    ws.cell(row=r2, column=6).number_format = CUR2
+    ws.cell(row=r2, column=7, value=f"={t}*({t}+1)*E{r2}")
+    ws.cell(row=r2, column=7).number_format = CUR2
+last_data_row = first_data_row + MAXP - 1
+
+sum_row = last_data_row + 1
+ws.cell(row=sum_row, column=2, value="Total").font = BOLD
+for col in (5, 6, 7):
+    letter = get_column_letter(col)
+    ws.cell(row=sum_row, column=col, value=f"=SUM({letter}{first_data_row}:{letter}{last_data_row})")
+    ws.cell(row=sum_row, column=col).number_format = CUR2
+    ws.cell(row=sum_row, column=col).font = BOLD
+
+r = sum_row + 2
+ws.cell(row=r, column=2, value="Closed-form price (should equal Bond Pricing price)")
+ws.cell(row=r, column=3, value=f"=E{sum_row}")
+ws.cell(row=r, column=3).number_format = CUR2; ws.cell(row=r, column=3).border = BORDER
+price_check_row = r; r += 1
+ws.cell(row=r, column=2, value="Macaulay duration (years)")
+ws.cell(row=r, column=3, value=f"=IFERROR((F{sum_row}/E{sum_row})/'Bond Pricing'!$C$7,\"-\")")
+ws.cell(row=r, column=3).number_format = "0.0000"; ws.cell(row=r, column=3).border = BORDER
+mac_dur_row = r; r += 1
+ws.cell(row=r, column=2, value="Modified duration (closed-form)")
+ws.cell(row=r, column=3, value=f"=IFERROR(C{mac_dur_row}/(1+{y_ref}),\"-\")")
+ws.cell(row=r, column=3).font = BOLD; ws.cell(row=r, column=3).number_format = "0.00"
+ws.cell(row=r, column=3).border = BORDER
+mod_dur_cf_row = r; r += 1
+ws.cell(row=r, column=2, value="Convexity (closed-form, annualized)")
+ws.cell(row=r, column=3,
+        value=f"=IFERROR((G{sum_row}/E{sum_row})/(1+{y_ref})^2/'Bond Pricing'!$C$7^2,\"-\")")
+ws.cell(row=r, column=3).font = BOLD; ws.cell(row=r, column=3).number_format = "0.00"
+ws.cell(row=r, column=3).border = BORDER
+convexity_cf_row = r; r += 1
+ws.cell(row=r, column=2, value="Diff vs. numerical (FD) modified duration above")
+ws.cell(row=r, column=3, value=f"=IFERROR(C{mod_dur_cf_row}-C8,\"-\")")
+ws.cell(row=r, column=3).number_format = "0.0000"; ws.cell(row=r, column=3).border = BORDER
+r += 1
+ws.cell(row=r, column=2, value="Diff vs. numerical (FD) convexity above")
+ws.cell(row=r, column=3, value=f"=IFERROR(C{convexity_cf_row}-C9,\"-\")")
+ws.cell(row=r, column=3).number_format = "0.0000"; ws.cell(row=r, column=3).border = BORDER
+r += 1
+ws.cell(row=r, column=2,
+        value=(f"Cash flow schedule supports up to {MAXP} periods (coupon frequency x years to maturity). "
+               f"Inputs implying more periods than that will silently truncate the closed-form sums -- the "
+               f"price-check row above should always be verified to still match Bond Pricing's price."))
+ws.cell(row=r, column=2).font = ITALIC_GRAY
+
+set_col_widths(ws, [4, 34, 16, 16, 16, 16, 16])
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Modified duration and convexity via finite-difference price shock (+/- 50bp)", "Standard numerical price-sensitivity estimation", "Standard practice", "A numerical approximation -- accuracy depends on shock size; too large a shock understates convexity's own curvature"),
+        ("Modified duration and convexity via closed-form cash flow schedule (sum of t x PV(CF) / sum of t(t+1) x PV(CF))", "Standard fixed-income textbook definition (e.g. Fabozzi, Bond Markets, Analysis, and Strategies)", "Textbook standard", "Exact given the bond's stated cash flows -- the reference the numerical method above is approximating"),
+        ("30/360 and Actual/Actual day-count conventions for accrued interest", "Standard bond market day-count conventions", "Standard practice", "30/360 is standard for most corporate/municipal bonds; Actual/Actual is standard for U.S. Treasuries -- using the wrong one for the instrument type misstates accrued interest"),
+        ("Level annuity + bullet PV bond pricing (Excel PV function)", "Standard fixed-coupon bond pricing", "Standard practice", "Assumes no embedded optionality (call/put/convert) -- an option-adjusted spread (OAS) model would be needed for callable/putable bonds"),
+    ],
+    checks=[
+        ("Closed-form price (from the cash flow schedule) matches Bond Pricing's PV-formula price", f"='Duration & Convexity'!C{price_check_row}-'Bond Pricing'!C11", "0 (exact) -- both are the same bond priced two different ways"),
+        ("Closed-form modified duration matches numerical (finite-difference) modified duration", f"='Duration & Convexity'!C{mod_dur_cf_row}-'Duration & Convexity'!C8", "~0 (small) -- the FD estimate is an approximation of the closed-form value, not identical to the decimal"),
+        ("Closed-form convexity matches numerical (finite-difference) convexity", f"='Duration & Convexity'!C{convexity_cf_row}-'Duration & Convexity'!C9", "~0 (small) -- same relationship as duration, one differentiation order higher"),
+        ("Convexity is non-negative for this option-free bond", "=IF('Duration & Convexity'!C9>=0,TRUE,FALSE)", "TRUE -- a plain-vanilla (option-free) bond's price-yield curve is always convex from below"),
+    ],
+)
 
 # ---------------- YIELD CURVE ----------------
 ws = wb.create_sheet("Yield Curve")
