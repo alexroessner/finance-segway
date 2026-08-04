@@ -209,6 +209,100 @@ def check_accrued_interest():
 
 
 # ---------------------------------------------------------------------
+# Securitization: pool cash flow (CDR/CPR/recovery lag) + the two-
+# directional tranche cascade (principal senior->junior, loss junior->
+# senior) cross-checked cell-by-cell against an independent Python
+# re-implementation, plus the pool-vs-tranche reconciliation identity.
+# ---------------------------------------------------------------------
+def check_securitization_tranche_waterfall():
+    path = os.path.join(REPO_ROOT, "19_Structured_Finance_Securitization",
+                         "_template_SECURITIZATION.xlsx")
+    pool_balance, wac, wam, cpr, cdr, recovery_rate, lag = (
+        100_000_000.0, 0.06, 360, 0.08, 0.03, 0.50, 3)
+    faces = [80_000_000.0, 10_000_000.0, 5_000_000.0, 3_000_000.0, 2_000_000.0]
+
+    def populate(wb):
+        cp = wb["Collateral Pool"]
+        cp["C5"], cp["C6"], cp["C7"] = pool_balance, wac, wam
+        cp["C8"], cp["C9"], cp["C10"], cp["C11"] = cpr, cdr, recovery_rate, lag
+        wf = wb["Waterfall"]
+        for i, f in enumerate(faces):
+            wf.cell(row=5 + i, column=3, value=f)
+
+    wb = with_recalc(path, populate)
+    ws = wb["Tranche Cash Flow Waterfall"]
+
+    smm = 1 - (1 - cpr) ** (1 / 12)
+    mdr = 1 - (1 - cdr) ** (1 / 12)
+    pmt = pool_balance * (wac / 12) / (1 - (1 + wac / 12) ** (-wam))
+    N = 12
+    beg = [0.0] * N; sched_prin = [0.0] * N; defaults = [0.0] * N
+    prepay = [0.0] * N; end = [0.0] * N
+    for m in range(N):
+        beg[m] = pool_balance if m == 0 else end[m - 1]
+        sched_int = beg[m] * wac / 12
+        sched_prin[m] = max(0, pmt - sched_int)
+        defaults[m] = beg[m] * mdr
+        prepay[m] = max(0, beg[m] - sched_prin[m] - defaults[m]) * smm
+        end[m] = beg[m] - sched_prin[m] - defaults[m] - prepay[m]
+    recovery = [defaults[m - lag] * recovery_rate if m - lag >= 0 else 0.0 for m in range(N)]
+    loss = [defaults[m] * (1 - recovery_rate) for m in range(N)]
+    prin_avail = [sched_prin[m] + prepay[m] + recovery[m] for m in range(N)]
+
+    tranche_beg = [[0.0] * N for _ in range(5)]
+    tranche_prin = [[0.0] * N for _ in range(5)]
+    tranche_loss = [[0.0] * N for _ in range(5)]
+    tranche_end = [[0.0] * N for _ in range(5)]
+    for m in range(N):
+        remaining = prin_avail[m]
+        for i in range(5):
+            tranche_beg[i][m] = faces[i] if m == 0 else tranche_end[i][m - 1]
+            p = max(0, min(remaining, tranche_beg[i][m]))
+            tranche_prin[i][m] = p
+            remaining -= p
+        remaining_loss = loss[m]
+        for i in reversed(range(5)):
+            after_prin = tranche_beg[i][m] - tranche_prin[i][m]
+            losses_alloc = max(0, min(remaining_loss, after_prin))
+            tranche_loss[i][m] = losses_alloc
+            remaining_loss -= losses_alloc
+            tranche_end[i][m] = tranche_beg[i][m] - tranche_prin[i][m] - tranche_loss[i][m]
+
+    blocks = {i: 19 + i * 5 for i in range(5)}
+    mismatches = []
+    for m in range(N):
+        col = get_column_letter(3 + m)
+        if not close(ws[f"{col}12"].value, end[m]):
+            mismatches.append(f"pool end m{m + 1}: sheet={ws[f'{col}12'].value} ref={end[m]:.2f}")
+        for i in range(5):
+            base = blocks[i]
+            for name, row, ref in ((("beg", base + 1, tranche_beg[i][m]),
+                                     ("prin", base + 2, tranche_prin[i][m]),
+                                     ("loss", base + 3, tranche_loss[i][m]),
+                                     ("end", base + 4, tranche_end[i][m]))):
+                sheet_val = ws.cell(row=row, column=3 + m).value
+                if not close(sheet_val, ref):
+                    mismatches.append(f"tranche{i} {name} m{m + 1}: sheet={sheet_val} ref={ref:.2f}")
+
+    ok = not mismatches
+
+    recon_row0 = 19 + 25 + 2 + 7
+    recon_check = ws.cell(row=recon_row0 + 5, column=3).value
+    ok = ok and close(recon_check, 0, tol=1e-3)
+
+    a_wal = ws.cell(row=19 + 25 + 2, column=3).value
+    ref_a_wal = (sum((m + 1) * tranche_prin[0][m] for m in range(N))
+                 / sum(tranche_prin[0]) / 12)
+    ok = ok and close(a_wal, ref_a_wal)
+
+    detail = (f"{len(mismatches)} cell mismatches across pool + 5 tranches x 12 months"
+              + (f" (first: {mismatches[0]})" if mismatches else "")
+              + f" | reconciliation check={recon_check:.6f} | "
+              f"Class A WAL: sheet={a_wal:.4f} ref={ref_a_wal:.4f}")
+    return "Securitization: pool CF + two-directional tranche cascade + reconciliation", ok, detail
+
+
+# ---------------------------------------------------------------------
 # LBO: Sources = Uses, and the debt schedule cash-sweep cascade
 # ---------------------------------------------------------------------
 def check_lbo_sources_uses_and_debt_schedule():
@@ -597,6 +691,7 @@ CHECKS = [
     check_black_scholes,
     check_bond_duration,
     check_accrued_interest,
+    check_securitization_tranche_waterfall,
     check_lbo_sources_uses_and_debt_schedule,
     check_lbo_scenario_switch,
     check_american_option_binomial,
