@@ -135,11 +135,11 @@
       "workbook_template": "_template_OPTIONS.xlsx",
       "instances": [],
       "owner": "unassigned",
-      "purpose": "Black-Scholes pricing, implied-volatility solver, American option binomial tree (CRR).",
+      "purpose": "Black-Scholes pricing, implied-volatility solver, American option binomial tree (CRR), and closed-form Greeks cross-checked against finite differences.",
       "risk_tier": "Tier 1",
-      "maturity": "M2",
-      "reference_checks": ["check_black_scholes", "check_american_option_binomial"],
-      "known_limitations": ["No Sources/Checks sheet or model card/validation record yet (M3 gate)", "No Greeks (delta/gamma/vega/theta) sheet"]
+      "maturity": "M3",
+      "reference_checks": ["check_black_scholes", "check_american_option_binomial", "check_options_greeks_finite_difference"],
+      "known_limitations": ["No populated instance yet (M4 gate)", "Finite-difference bump sizes are fixed defaults, not adaptively chosen per input scale"]
     },
     {
       "id": "commodities",

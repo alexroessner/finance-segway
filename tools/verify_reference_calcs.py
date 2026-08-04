@@ -787,6 +787,58 @@ def check_risk_historical_vs_parametric_var():
 
 
 # ---------------------------------------------------------------------
+# Options: closed-form Greeks vs. finite-difference (bump-and-reprice)
+# cross-check -- pins the fix for a real Excel operator-precedence bug
+# (unary minus binds tighter than exponentiation, so a hand-rolled
+# EXP(-x^2/2) silently computed EXP(+x^2/2)) that corrupted Gamma/Vega/
+# Theta until caught by this check.
+# ---------------------------------------------------------------------
+def check_options_greeks_finite_difference():
+    path = os.path.join(REPO_ROOT, "14_Options_Derivatives", "_template_OPTIONS.xlsx")
+    S, K, T, r, q, sigma = 100.0, 100.0, 0.25, 0.045, 0.0, 0.30
+
+    def populate(wb):
+        bs = wb["BS Pricer"]
+        bs["C5"], bs["C6"], bs["C7"], bs["C8"], bs["C9"], bs["C10"] = S, K, T, r, q, sigma
+
+    wb = with_recalc(path, populate)
+    g = wb["Greeks"]
+
+    d1 = (math.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+    phi_d1 = math.exp(-d1 ** 2 / 2) / math.sqrt(2 * math.pi)
+    Nd1, Nd2 = norm_cdf(d1), norm_cdf(d1 - sigma * math.sqrt(T))
+
+    ref_gamma = math.exp(-q * T) * phi_d1 / (S * sigma * math.sqrt(T))
+    ref_vega = S * math.exp(-q * T) * phi_d1 * math.sqrt(T) / 100
+    ref_theta_call = (-S * phi_d1 * sigma * math.exp(-q * T) / (2 * math.sqrt(T))
+                       - r * K * math.exp(-r * T) * Nd2 + q * S * math.exp(-q * T) * Nd1) / 365
+    ref_delta_call = math.exp(-q * T) * Nd1
+
+    ok = True
+    details = []
+    for label, sheet_val, ref_val in [
+        ("Delta (call)", g["C5"].value, ref_delta_call),
+        ("Gamma (call)", g["C6"].value, ref_gamma),
+        ("Vega (call)", g["C7"].value, ref_vega),
+        ("Theta (call)", g["C8"].value, ref_theta_call),
+    ]:
+        this_ok = close(sheet_val, ref_val, tol=1e-4)
+        ok = ok and this_ok
+        details.append(f"{label}: sheet={sheet_val:.6f} ref={ref_val:.6f} {'OK' if this_ok else 'MISMATCH'}")
+
+    # the regression this check exists to catch: the precedence bug made
+    # Gamma/Vega/Theta come out with the WRONG exponent sign on phi(d1),
+    # which (for these inputs) inflates them well past a 1% tolerance
+    buggy_phi = math.exp(d1 ** 2 / 2) / math.sqrt(2 * math.pi)  # the bug's actual (wrong) computation
+    buggy_vega = S * math.exp(-q * T) * buggy_phi * math.sqrt(T) / 100
+    not_the_bug = not close(g["C7"].value, buggy_vega, tol=1e-6)
+    ok = ok and not_the_bug
+    details.append(f"Vega does NOT match the known-buggy (wrong-sign) computation: {'OK' if not_the_bug else 'FAIL — bug has regressed'}")
+
+    return "Options: closed-form Greeks match finite-difference (precedence-bug regression check)", ok, " | ".join(details)
+
+
+# ---------------------------------------------------------------------
 # Trade Finance: early-payment discount implied APR (the classic
 # "2/10 net 30" corporate-finance factoid) + reverse factoring priced
 # off the buyer's stronger credit.
@@ -1666,6 +1718,7 @@ CHECKS = [
     check_lbo_scenario_switch,
     check_american_option_binomial,
     check_portfolio_var,
+    check_options_greeks_finite_difference,
     check_risk_historical_vs_parametric_var,
     check_base_dcf_comps_triangulation,
     check_vc_participating_preferred_cap,

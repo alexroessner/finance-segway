@@ -74,14 +74,23 @@ S, K, T, rr, q, sig = "'BS Pricer'!$C$5", "'BS Pricer'!$C$6", "'BS Pricer'!$C$7"
 d1, d2 = "'BS Pricer'!$F$5", "'BS Pricer'!$F$6"
 Nd1, Nd2, Nnd1, Nnd2 = "'BS Pricer'!$F$7", "'BS Pricer'!$F$8", "'BS Pricer'!$F$9", "'BS Pricer'!$F$10"
 
+# phi(d1) = standard normal DENSITY at d1. Uses Excel's built-in NORMDIST(x,0,1,FALSE)
+# rather than hand-rolling EXP(-d1^2/2)/SQRT(2*PI()) -- Excel evaluates unary minus
+# BEFORE exponentiation (=-2^2 returns 4, not -4), so "EXP(-(d1)^2/2)" silently computes
+# EXP(+d1^2/2) instead of EXP(-d1^2/2): the negation binds to d1 before squaring, and
+# squaring erases the sign. That precedence trap corrupted Gamma/Vega/Theta here (all
+# three use phi(d1)) until the finite-difference cross-check on the "Greeks FD Check"
+# tab caught the mismatch. NORMDIST's density form sidesteps the trap entirely.
+phi_d1 = f"NORMDIST({d1},0,1,FALSE)"
+
 greek_rows = [
     ("Delta", f"=EXP(-{q}*{T})*{Nd1}", f"=-EXP(-{q}*{T})*{Nnd1}", "Price sensitivity to $1 move in underlying"),
-    ("Gamma", f"=EXP(-{q}*{T})*(EXP(-({d1})^2/2)/SQRT(2*PI()))/({S}*{sig}*SQRT({T}))",
-              f"=EXP(-{q}*{T})*(EXP(-({d1})^2/2)/SQRT(2*PI()))/({S}*{sig}*SQRT({T}))", "Rate of change of delta"),
-    ("Vega (per 1% vol)", f"={S}*EXP(-{q}*{T})*(EXP(-({d1})^2/2)/SQRT(2*PI()))*SQRT({T})/100",
-                          f"={S}*EXP(-{q}*{T})*(EXP(-({d1})^2/2)/SQRT(2*PI()))*SQRT({T})/100", "Sensitivity to 1pt vol change"),
-    ("Theta (per day)", f"=(-{S}*(EXP(-({d1})^2/2)/SQRT(2*PI()))*{sig}*EXP(-{q}*{T})/(2*SQRT({T}))-{rr}*{K}*EXP(-{rr}*{T})*{Nd2}+{q}*{S}*EXP(-{q}*{T})*{Nd1})/365",
-                        f"=(-{S}*(EXP(-({d1})^2/2)/SQRT(2*PI()))*{sig}*EXP(-{q}*{T})/(2*SQRT({T}))+{rr}*{K}*EXP(-{rr}*{T})*{Nnd2}-{q}*{S}*EXP(-{q}*{T})*{Nnd1})/365",
+    ("Gamma", f"=EXP(-{q}*{T})*{phi_d1}/({S}*{sig}*SQRT({T}))",
+              f"=EXP(-{q}*{T})*{phi_d1}/({S}*{sig}*SQRT({T}))", "Rate of change of delta"),
+    ("Vega (per 1% vol)", f"={S}*EXP(-{q}*{T})*{phi_d1}*SQRT({T})/100",
+                          f"={S}*EXP(-{q}*{T})*{phi_d1}*SQRT({T})/100", "Sensitivity to 1pt vol change"),
+    ("Theta (per day)", f"=(-{S}*{phi_d1}*{sig}*EXP(-{q}*{T})/(2*SQRT({T}))-{rr}*{K}*EXP(-{rr}*{T})*{Nd2}+{q}*{S}*EXP(-{q}*{T})*{Nd1})/365",
+                        f"=(-{S}*{phi_d1}*{sig}*EXP(-{q}*{T})/(2*SQRT({T}))+{rr}*{K}*EXP(-{rr}*{T})*{Nnd2}-{q}*{S}*EXP(-{q}*{T})*{Nnd1})/365",
                         "Time decay per calendar day"),
     ("Rho (per 1%)", f"={K}*{T}*EXP(-{rr}*{T})*{Nd2}/100", f"=-{K}*{T}*EXP(-{rr}*{T})*{Nnd2}/100", "Sensitivity to 1pt rate change"),
 ]
@@ -94,6 +103,93 @@ for label, call_f, put_f, note in greek_rows:
     for c in (3, 4):
         ws.cell(row=r, column=c).border = BORDER
     r += 1
+ws.sheet_view.showGridLines = False
+
+# ---------------- GREEKS: FINITE-DIFFERENCE CROSS-CHECK ----------------
+# The closed-form Greeks above have never been independently verified --
+# they're calculus, not something you can eyeball. Every options desk
+# cross-checks analytical Greeks against numerical bump-and-reprice at
+# least occasionally; this does the same thing on the sheet itself:
+# perturb each input by a small step, reprice via the FULL Black-Scholes
+# formula (not a shortcut), and take the numerical derivative. A genuinely
+# different calculation method from the closed-form formulas, not a copy.
+def _bs_formula(kind, S, K, T, r, q, sigma):
+    d1 = f"(LN({S}/{K})+({r}-{q}+0.5*({sigma})^2)*{T})/(({sigma})*SQRT({T}))"
+    d2 = f"({d1}-({sigma})*SQRT({T}))"
+    if kind == "call":
+        return f"({S}*EXP(-({q})*{T})*NORMSDIST({d1})-{K}*EXP(-({r})*{T})*NORMSDIST({d2}))"
+    return f"({K}*EXP(-({r})*{T})*NORMSDIST(-({d2}))-{S}*EXP(-({q})*{T})*NORMSDIST(-({d1})))"
+
+
+ws = wb.create_sheet("Greeks FD Check")
+set_col_widths(ws, [4, 26, 16, 16, 46])
+ws["B2"] = "Greeks — Finite-Difference (Bump-and-Reprice) Cross-Check"; ws["B2"].font = TITLE
+ws["B3"] = ("Perturbs each Black-Scholes input by a small step and reprices from scratch, then takes the "
+            "numerical derivative -- the standard way a trading desk sanity-checks analytical Greeks. A "
+            "genuinely different calculation path from the closed-form formulas on the Greeks tab, not a copy.")
+ws["B3"].font = ITALIC_GRAY
+
+ws["B5"] = "Bump sizes"; ws["B5"].font = BOLD; ws["B5"].fill = GRAY_FILL
+ws["B6"] = "Spot bump, h_S ($)"
+c = ws.cell(row=6, column=3, value=0.01); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = '0.0000'; c.border = BORDER
+ws["B7"] = "Vol bump, h_sigma (pts)"
+c = ws.cell(row=7, column=3, value=0.0001); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = '0.00000'; c.border = BORDER
+ws["B8"] = "Time bump, h_T (yrs)"
+c = ws.cell(row=8, column=3, value=0.0001); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = '0.00000'; c.border = BORDER
+ws["B9"] = "Rate bump, h_r (pts)"
+c = ws.cell(row=9, column=3, value=0.0001); c.font = BLUE; c.fill = YELLOW_FILL; c.number_format = '0.00000'; c.border = BORDER
+
+S, K, T, rr, q, sig = "'BS Pricer'!$C$5", "'BS Pricer'!$C$6", "'BS Pricer'!$C$7", \
+                      "'BS Pricer'!$C$8", "'BS Pricer'!$C$9", "'BS Pricer'!$C$10"
+hS, hsig, hT, hr = "$C$6", "$C$7", "$C$8", "$C$9"
+
+for i, h in enumerate(["", "Greek (numerical)", "Call", "Put", "vs. closed-form (Greeks tab)"], start=1):
+    ws.cell(row=11, column=i, value=h)
+style_header_row(ws, 11, 4)
+
+Sp, Sm = f"({S}+{hS})", f"({S}-{hS})"
+vp, vm = f"({sig}+{hsig})", f"({sig}-{hsig})"
+Tm = f"({T}-{hT})"
+rp, rm = f"({rr}+{hr})", f"({rr}-{hr})"
+
+call_S0 = _bs_formula("call", S, K, T, rr, q, sig)
+put_S0 = _bs_formula("put", S, K, T, rr, q, sig)
+
+rows = [
+    ("Delta = (P(S+h)-P(S-h)) / 2h",
+     f"=({_bs_formula('call', Sp, K, T, rr, q, sig)}-{_bs_formula('call', Sm, K, T, rr, q, sig)})/(2*{hS})",
+     f"=({_bs_formula('put', Sp, K, T, rr, q, sig)}-{_bs_formula('put', Sm, K, T, rr, q, sig)})/(2*{hS})",
+     "Greeks!C5", "Greeks!D5"),
+    ("Gamma = (P(S+h)-2P(S)+P(S-h)) / h^2",
+     f"=({_bs_formula('call', Sp, K, T, rr, q, sig)}-2*{call_S0}+{_bs_formula('call', Sm, K, T, rr, q, sig)})/({hS}^2)",
+     f"=({_bs_formula('put', Sp, K, T, rr, q, sig)}-2*{put_S0}+{_bs_formula('put', Sm, K, T, rr, q, sig)})/({hS}^2)",
+     "Greeks!C6", "Greeks!D6"),
+    ("Vega (per 1%) = (P(v+h)-P(v-h)) / 2h / 100",
+     f"=({_bs_formula('call', S, K, T, rr, q, vp)}-{_bs_formula('call', S, K, T, rr, q, vm)})/(2*{hsig})/100",
+     f"=({_bs_formula('put', S, K, T, rr, q, vp)}-{_bs_formula('put', S, K, T, rr, q, vm)})/(2*{hsig})/100",
+     "Greeks!C7", "Greeks!D7"),
+    ("Theta (per day) = (P(T-h)-P(T)) / h / 365",
+     f"=({_bs_formula('call', S, K, Tm, rr, q, sig)}-{call_S0})/{hT}/365",
+     f"=({_bs_formula('put', S, K, Tm, rr, q, sig)}-{put_S0})/{hT}/365",
+     "Greeks!C8", "Greeks!D8"),
+    ("Rho (per 1%) = (P(r+h)-P(r-h)) / 2h / 100",
+     f"=({_bs_formula('call', S, K, T, rp, q, sig)}-{_bs_formula('call', S, K, T, rm, q, sig)})/(2*{hr})/100",
+     f"=({_bs_formula('put', S, K, T, rp, q, sig)}-{_bs_formula('put', S, K, T, rm, q, sig)})/(2*{hr})/100",
+     "Greeks!C9", "Greeks!D9"),
+]
+r = 12
+for label, call_f, put_f, cf_call_ref, cf_put_ref in rows:
+    ws.cell(row=r, column=2, value=label).font = BLACK
+    ws.cell(row=r, column=3, value=call_f).number_format = '0.0000'
+    ws.cell(row=r, column=4, value=put_f).number_format = '0.0000'
+    ws.cell(row=r, column=5,
+            value=f'="call diff: "&TEXT(C{r}-{cf_call_ref},"0.0000")&"  |  put diff: "&TEXT(D{r}-{cf_put_ref},"0.0000")')
+    ws.cell(row=r, column=5).font = ITALIC_GRAY
+    for c in (3, 4):
+        ws.cell(row=r, column=c).border = BORDER
+    r += 1
+ws["B18"] = "Differences should be small (finite-difference has its own approximation error, tightest for Delta/Vega/Rho with a small linear bump, loosest for Gamma since it uses a second-derivative formula more sensitive to bump size)."
+ws["B18"].font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
 
 # ---------------- STRATEGY PAYOFFS ----------------
@@ -193,7 +289,9 @@ for i in range(9):
         f"{K}*EXP(-{rr}*{T})*NORMSDIST(-{col}17)-{S}*EXP(-{q}*{T})*NORMSDIST(-{col}16))"
     )
     ws[f"{col}18"].number_format = CUR2
-    ws[f"{col}19"] = f"={S}*EXP(-{q}*{T})*(EXP(-{col}16^2/2)/SQRT(2*PI()))*SQRT({T})"
+    # Same NORMDIST(x,0,1,FALSE) fix as the Greeks tab -- avoids Excel's
+    # unary-minus-before-exponentiation trap in a hand-rolled EXP(-x^2/2).
+    ws[f"{col}19"] = f"={S}*EXP(-{q}*{T})*NORMDIST({col}16,0,1,FALSE)*SQRT({T})"
     ws[f"{col}19"].number_format = "0.0000"
     for row in (15, 16, 17, 18, 19):
         ws.cell(row=row, column=3 + i).border = BORDER
@@ -349,6 +447,22 @@ ws.cell(row=summary_row + 3, column=4,
         value="The European binomial value above should sit close to this — both price the same no-early-exercise option two different ways")
 ws.cell(row=summary_row + 3, column=4).font = ITALIC_GRAY
 ws.sheet_view.showGridLines = False
+
+add_sources_checks(
+    wb,
+    sources=[
+        ("Closed-form Black-Scholes Greeks (Delta/Gamma/Vega/Theta/Rho)", "Standard Black-Scholes-Merton partial-derivative formulas", "Standard practice (closed-form calculus)", "Assumes the same Black-Scholes assumptions as the pricer itself (constant vol, no early exercise, continuous trading)"),
+        ("Finite-difference Greeks cross-check (bump-and-reprice)", "Standard options-desk practice for validating analytical Greeks", "Standard practice", "Finite-difference has its own approximation error, tightest for first-derivative Greeks with a small bump, loosest for Gamma (second derivative)"),
+        ("Newton-Raphson implied-volatility solver with Brenner-Subrahmanyam starting guess", "Standard numerical IV-solving approach; Brenner-Subrahmanyam (1988) closed-form approximation as the seed", "Standard practice", "Converges in 2-3 iterations for reasonable options; 9 shown as a safety margin, not a requirement"),
+        ("American option binomial tree (Cox-Ross-Rubinstein)", "Standard CRR (1979) binomial lattice methodology", "Standard practice", "10 steps is legibility-driven, not convergence-driven -- a production desk runs hundreds of steps"),
+    ],
+    checks=[
+        ("Finite-difference Delta matches closed-form Delta (call)", "=IFERROR(ABS('Greeks FD Check'!C12-Greeks!C5)<0.001,\"-\")", "TRUE once BS Pricer inputs are populated"),
+        ("Finite-difference Vega matches closed-form Vega (put)", "=IFERROR(ABS('Greeks FD Check'!D14-Greeks!D7)<0.001,\"-\")", "TRUE once BS Pricer inputs are populated"),
+        ("IV solver recovers the price it started from (round-trip)", "=IFERROR(ABS('Implied Volatility'!C22)<0.01,\"-\")", "TRUE -- convergence check already on the IV sheet, mirrored here as a standing gate"),
+        ("Put-call parity holds on the BS Pricer's own outputs", "=IFERROR(('BS Pricer'!C13-'BS Pricer'!C14)-('BS Pricer'!C5*EXP(-'BS Pricer'!C9*'BS Pricer'!C7)-'BS Pricer'!C6*EXP(-'BS Pricer'!C8*'BS Pricer'!C7)),\"-\")", "0 (exact) once inputs are populated -- C-P = S*e^(-qT) - K*e^(-rT)"),
+    ],
+)
 
 add_refresh_log(wb)
 
